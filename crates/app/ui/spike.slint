@@ -1,0 +1,188 @@
+// Phase 0 overlay spike: decoded video as an Slint Image with fully composited HUD on top.
+// No HWND child window => no airspace problem. Styling and strings come from Phase 2 globals.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+
+export component AppWindow inherits Window {
+    title: Strings.s_app_spike_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+
+    in-out property <image> video-frame;
+    in-out property <string> filename;
+    in-out property <string> resolution;
+    in-out property <string> telemetry;
+    in-out property <string> elapsed: "0:00";
+    in-out property <string> duration: "0:00";
+    in-out property <float> seek-position: 0;
+    in-out property <int> volume-level: 100;
+    in-out property <bool> playing: false;
+    in-out property <bool> rtl: false;
+    out property <bool> drag-hover <=> dropper.has-drag;
+
+    callback toggle-play();
+    callback stop-playback();
+    callback toggle-rtl();
+    callback seek-changed(float);
+    callback volume-changed(int);
+    callback toggle-fullscreen();
+    pure callback accepts-drop(data-transfer) -> bool;
+    callback files-dropped(data-transfer);
+
+    FocusScope {
+        width: 100%; height: 100%;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Space") { root.toggle-play(); return accept; }
+            if (event.text == "m" || event.text == "M") { root.volume-changed(root.volume-level == 0 ? 100 : 0); return accept; }
+            if (event.text == "f" || event.text == "F") { root.toggle-fullscreen(); return accept; }
+            if (event.text == "ArrowLeft") { root.seek-changed(max(0, root.seek-position - 0.02)); return accept; }
+            if (event.text == "ArrowRight") { root.seek-changed(min(1, root.seek-position + 0.02)); return accept; }
+            if (event.text == "Escape") { return accept; }
+            reject
+        }
+
+        // ---------- native drag & drop target ----------
+        dropper := DropArea {
+            width: 100%; height: 100%;
+            can-drop(event) => {
+                root.accepts-drop(event.data) ? DragAction.copy : DragAction.none
+            }
+            dropped(event) => {
+                root.files-dropped(event.data);
+                return event.proposed-action;
+            }
+        }
+
+        // ---------- video surface (bottom of z-order) ----------
+        Rectangle {
+            width: 100%; height: 100%;
+            background: Theme.bg-video;
+            Image {
+                width: 100%; height: 100%;
+                source: root.video-frame;
+                image-fit: ImageFit.contain;
+            }
+        }
+
+        // ---------- top telemetry HUD ----------
+        Rectangle {
+            width: 100%; height: Theme.space-7 + Theme.space-3;
+            background: Theme.bg-overlay;
+            if !root.rtl: HorizontalLayout {
+                padding-left: Theme.space-4; padding-right: Theme.space-4;
+                spacing: Theme.space-3;
+                Text { text: root.filename; color: Theme.text-primary; font-family: Theme.font; font-size: Theme.text-3; font-weight: 600; overflow: elide; horizontal-stretch: 1; }
+                Text { text: root.resolution; color: Theme.text-body; font-family: Theme.font; font-size: Theme.text-2; }
+                Text { text: root.telemetry; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; }
+                Rectangle {
+                    width: Theme.tooltip-width / 2; height: Theme.control-height-sm;
+                    border-radius: Theme.radius-sm;
+                    background: Theme.bg-surface; border-width: Theme.border-width; border-color: Theme.border-default;
+                    Text { text: Strings.s_hud_language_toggle; color: Theme.accent; font-family: Theme.font; font-size: Theme.text-1; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.toggle-rtl(); } }
+                }
+            }
+            if root.rtl: HorizontalLayout {
+                padding-left: Theme.space-4; padding-right: Theme.space-4;
+                spacing: Theme.space-3;
+                Rectangle {
+                    width: Theme.tooltip-width / 2; height: Theme.control-height-sm;
+                    border-radius: Theme.radius-sm;
+                    background: Theme.bg-surface; border-width: Theme.border-width; border-color: Theme.border-default;
+                    Text { text: Strings.s_hud_language_toggle; color: Theme.accent; font-family: Theme.font; font-size: Theme.text-1; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { clicked => { root.toggle-rtl(); } }
+                }
+                Text { text: root.telemetry; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; horizontal-alignment: right; }
+                Text { text: root.resolution; color: Theme.text-body; font-family: Theme.font; font-size: Theme.text-2; horizontal-alignment: right; }
+                Text { text: root.filename; color: Theme.text-primary; font-family: Theme.font; font-size: Theme.text-3; font-weight: 600; overflow: elide; horizontal-stretch: 1; horizontal-alignment: right; }
+            }
+        }
+
+        // ---------- bottom control bar ----------
+        Rectangle {
+            y: parent.height - Theme.control-height-lg - Theme.space-5;
+            width: 100%; height: Theme.control-height-lg + Theme.space-5;
+            background: Theme.bg-overlay;
+
+            if !root.rtl: HorizontalLayout {
+                padding-left: Theme.space-4; padding-right: Theme.space-4;
+                spacing: Theme.space-3; alignment: LayoutAlignment.center;
+                Rectangle {
+                    width: Theme.control-height-md; height: Theme.control-height-md;
+                    border-radius: Theme.radius-pill; background: Theme.accent;
+                    if !root.playing: Image { width: Theme.icon-size-md; height: Theme.icon-size-md; source: @image-url("../../../assets/icons/control/play.svg"); }
+                    if root.playing: Image { width: Theme.icon-size-md; height: Theme.icon-size-md; source: @image-url("../../../assets/icons/control/pause.svg"); }
+                    TouchArea { clicked => { root.toggle-play(); } }
+                }
+                Rectangle {
+                    width: Theme.control-height-sm; height: Theme.control-height-sm;
+                    border-radius: Theme.radius-pill; background: Theme.bg-surface;
+                    Image { width: Theme.icon-size-sm; height: Theme.icon-size-sm; source: @image-url("../../../assets/icons/control/stop.svg"); }
+                    TouchArea { clicked => { root.stop-playback(); } }
+                }
+                Text { text: root.elapsed; color: Theme.text-body; font-family: Theme.font; font-size: Theme.text-2; }
+                Rectangle {
+                    horizontal-stretch: 1; height: Theme.seek-height; border-radius: Theme.radius-pill; background: Theme.border-default;
+                    Rectangle { width: root.seek-position * parent.width; height: 100%; border-radius: Theme.radius-pill; background: Theme.accent; }
+                    TouchArea { clicked => { root.seek-changed(self.mouse-x / max(self.width, 1px)); } }
+                }
+                Text { text: root.duration; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; }
+                Image { width: Theme.icon-size-sm; height: Theme.icon-size-sm; source: @image-url("../../../assets/icons/control/volume.svg"); }
+                Rectangle {
+                    width: Theme.tooltip-width - Theme.space-5; height: Theme.track-height;
+                    border-radius: Theme.radius-pill; background: Theme.border-default;
+                    Rectangle { width: (root.volume-level / 100) * parent.width; height: 100%; border-radius: Theme.radius-pill; background: Theme.accent; }
+                    TouchArea { clicked => { root.volume-changed(round(self.mouse-x / max(self.width, 1px) * 100)); } }
+                }
+            }
+
+            if root.rtl: HorizontalLayout {
+                padding-left: Theme.space-4; padding-right: Theme.space-4;
+                spacing: Theme.space-3; alignment: LayoutAlignment.center;
+                Rectangle {
+                    width: Theme.tooltip-width - Theme.space-5; height: Theme.track-height;
+                    border-radius: Theme.radius-pill; background: Theme.border-default;
+                    Rectangle { x: parent.width - self.width; width: (root.volume-level / 100) * parent.width; height: 100%; border-radius: Theme.radius-pill; background: Theme.accent; }
+                    TouchArea { clicked => { root.volume-changed(round((1 - self.mouse-x / max(self.width, 1px)) * 100)); } }
+                }
+                Image { width: Theme.icon-size-sm; height: Theme.icon-size-sm; source: @image-url("../../../assets/icons/control/volume.svg"); }
+                Text { text: root.duration; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; horizontal-alignment: right; }
+                Rectangle {
+                    horizontal-stretch: 1; height: Theme.seek-height; border-radius: Theme.radius-pill; background: Theme.border-default;
+                    Rectangle { x: parent.width - self.width; width: root.seek-position * parent.width; height: 100%; border-radius: Theme.radius-pill; background: Theme.accent; }
+                    TouchArea { clicked => { root.seek-changed(1 - self.mouse-x / max(self.width, 1px)); } }
+                }
+                Text { text: root.elapsed; color: Theme.text-body; font-family: Theme.font; font-size: Theme.text-2; horizontal-alignment: right; }
+                Rectangle {
+                    width: Theme.control-height-sm; height: Theme.control-height-sm;
+                    border-radius: Theme.radius-pill; background: Theme.bg-surface;
+                    Image { width: Theme.icon-size-sm; height: Theme.icon-size-sm; source: @image-url("../../../assets/icons/control/stop.svg"); }
+                    TouchArea { clicked => { root.stop-playback(); } }
+                }
+                Rectangle {
+                    width: Theme.control-height-md; height: Theme.control-height-md;
+                    border-radius: Theme.radius-pill; background: Theme.accent;
+                    if !root.playing: Image { width: Theme.icon-size-md; height: Theme.icon-size-md; source: @image-url("../../../assets/icons/control/play.svg"); }
+                    if root.playing: Image { width: Theme.icon-size-md; height: Theme.icon-size-md; source: @image-url("../../../assets/icons/control/pause.svg"); }
+                    TouchArea { clicked => { root.toggle-play(); } }
+                }
+            }
+        }
+
+        // ---------- drop hint ----------
+        if root.drag-hover: Rectangle {
+            width: 100%; height: 100%;
+            background: Theme.bg-overlay;
+            Text {
+                text: Strings.s_gallery_drop_hint;
+                color: Theme.accent;
+                font-family: Theme.font;
+                font-size: Theme.text-6;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

@@ -1,0 +1,910 @@
+// Phase 6 right sidebar: compact adjustment panels over the player surface.
+// The panel owns no state of its own beyond view properties; all values are pushed from
+// Rust so presets, live playback and the UI always agree.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import { VfmButton, VfmDropdown, VfmSlider, VfmToggle } from "components.slint";
+
+export struct PresetRow {
+    name: string,
+    scope: string,
+    active: bool,
+}
+
+/// One entry in the chapter or bookmark list. `position` is 0..1 of the duration so the
+/// row can be drawn and hit-tested without the panel knowing the file length.
+export struct TimelineRow {
+    name: string,
+    time: string,
+    position: float,
+    active: bool,
+}
+
+/// One label/value pair in the metadata panel.
+export struct MetadataRow {
+    label: string,
+    value: string,
+}
+
+/// One serialisable snapshot of every adjustment. Rust pushes this struct so a single
+/// property update can refresh the whole panel after a preset is applied.
+export struct SidebarState {
+    show: bool,
+    tab: int,
+    eq-index: int,
+    audio-device-index: int,
+    aspect-index: int,
+    rotation-index: int,
+    active-preset-index: int,
+    preset-name: string,
+    preset-scope-label: string,
+    subtitle-font-name: string,
+    subtitle-language-name: string,
+    audio-filters-label: string,
+    subtitle-delay: float,
+    subtitle-size: float,
+    subtitle-position: float,
+    subtitle-outline: float,
+    subtitle-delay-label: string,
+    subtitle-size-label: string,
+    subtitle-position-label: string,
+    subtitle-outline-label: string,
+    subtitle-relative: bool,
+    subtitle-timeline: bool,
+    audio-delay: float,
+    audio-delay-label: string,
+    audio-normalize: bool,
+    audio-surround: bool,
+    brightness: float,
+    contrast: float,
+    saturation: float,
+    hue: float,
+    gamma: float,
+    zoom: float,
+    flip-h: bool,
+    flip-v: bool,
+    brightness-label: string,
+    contrast-label: string,
+    saturation-label: string,
+    hue-label: string,
+    gamma-label: string,
+    zoom-label: string,
+    speed: float,
+    sleep-minutes: float,
+    speed-label: string,
+    sleep-label: string,
+    waveform: bool,
+    metadata: bool,
+}
+
+component SliderRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value-label;
+    in-out property <float> value: 0;
+    callback changed(float);
+
+    height: Theme.control-height-lg + Theme.space-2;
+
+    Text {
+        x: 0; y: 0;
+        width: 100%; height: Theme.space-5;
+        text: root.label;
+        color: Theme.text-body;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+    Text {
+        x: 0; y: 0;
+        width: 100%; height: Theme.space-5;
+        text: root.value-label;
+        color: Theme.accent;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? left : right;
+    }
+    VfmSlider {
+        y: Theme.space-5;
+        width: 100%;
+        value <=> root.value;
+        changed(v) => { root.changed(v); }
+    }
+}
+
+/// One chapter or bookmark row: label on the reading side, timecode on the trailing side.
+/// Selection is handled by the panel (like the preset list) so one action row can act on it.
+component TimelineListRow inherits Rectangle {
+    in property <string> name;
+    in property <string> time;
+    in property <bool> active: false;
+    callback activated();
+
+    height: 34px;
+    border-radius: Theme.radius-sm;
+    background: root.active ? Theme.accent-soft : (hit.has-hover ? Theme.bg-surface : transparent);
+
+    Text {
+        x: Theme.rtl ? 58px : Theme.space-2;
+        width: parent.width - 58px - Theme.space-2;
+        y: 0; height: 100%;
+        text: root.name;
+        color: root.active ? Theme.accent : Theme.text-primary;
+        font-family: Theme.font;
+        font-size: Theme.text-3;
+        overflow: elide;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+    Text {
+        x: Theme.rtl ? Theme.space-2 : parent.width - 54px;
+        width: 48px; y: 0; height: 100%;
+        text: root.time;
+        color: Theme.text-secondary;
+        font-family: Theme.font;
+        font-size: Theme.text-1;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? left : right;
+    }
+    hit := TouchArea { width: 100%; height: 100%; clicked => { root.activated(); } }
+}
+
+/// Section heading with an optional trailing action label.
+component SectionHeader inherits Rectangle {
+    in property <string> title;
+    in property <string> action;
+    in property <bool> show-action: false;
+    callback acted();
+
+    height: Theme.control-height-sm;
+    Text {
+        x: Theme.rtl ? 0px : Theme.space-2;
+        width: parent.width - Theme.space-2 - (root.show-action ? 96px : 0px);
+        y: 0; height: 100%;
+        text: root.title;
+        color: Theme.text-secondary;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        font-weight: 600;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+    if root.show-action: Text {
+        x: Theme.rtl ? Theme.space-2 : parent.width - 96px;
+        width: 92px; y: 0; height: 100%;
+        text: root.action;
+        overflow: elide;
+        color: act.has-hover ? Theme.accent-hover : Theme.accent;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? left : right;
+        act := TouchArea { width: 100%; height: 100%; clicked => { root.acted(); } }
+    }
+}
+
+component ToggleRow inherits Rectangle {
+    in property <string> label;
+    in-out property <bool> checked: false;
+    callback changed(bool);
+
+    height: Theme.control-height-lg;
+    Text {
+        x: 0; y: 0;
+        width: 70%; height: 100%;
+        text: root.label;
+        color: Theme.text-body;
+        font-family: Theme.font;
+        font-size: Theme.text-3;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+    VfmToggle {
+        x: Theme.rtl ? 0px : parent.width - self.width;
+        y: (parent.height - self.height) / 2;
+        checked <=> root.checked;
+        changed(v) => { root.changed(v); }
+    }
+}
+
+export component RightSidebar inherits Rectangle {
+    in property <length> view-width: 1280px;
+    in property <length> view-height: 720px;
+    in property <image> preview-frame;
+
+    in-out property <SidebarState> state;
+    in-out property <bool> show <=> root.state.show;
+    in-out property <int> tab <=> root.state.tab;
+    in-out property <[PresetRow]> preset-rows;
+    in-out property <[string]> eq-options;
+    in-out property <[string]> audio-device-options;
+    in-out property <[string]> aspect-options;
+    // Phase 7: chapter list, bookmark list and the metadata panel.
+    in-out property <[TimelineRow]> chapter-rows;
+    in-out property <[TimelineRow]> bookmark-rows;
+    in-out property <[MetadataRow]> metadata-rows;
+    in-out property <int> bookmark-index: -1;
+
+    in-out property <int> eq-index <=> root.state.eq-index;
+    in-out property <int> audio-device-index <=> root.state.audio-device-index;
+    in-out property <int> aspect-index <=> root.state.aspect-index;
+    in-out property <int> rotation-index <=> root.state.rotation-index;
+    in-out property <int> active-preset-index <=> root.state.active-preset-index;
+
+    in-out property <string> preset-name <=> root.state.preset-name;
+    in-out property <string> preset-scope-label <=> root.state.preset-scope-label;
+    in-out property <string> subtitle-font-name <=> root.state.subtitle-font-name;
+    in-out property <string> subtitle-language-name <=> root.state.subtitle-language-name;
+    in-out property <string> audio-filters-label <=> root.state.audio-filters-label;
+
+    in-out property <float> subtitle-delay <=> root.state.subtitle-delay;
+    in-out property <float> subtitle-size <=> root.state.subtitle-size;
+    in-out property <float> subtitle-position <=> root.state.subtitle-position;
+    in-out property <float> subtitle-outline <=> root.state.subtitle-outline;
+    in-out property <string> subtitle-delay-label <=> root.state.subtitle-delay-label;
+    in-out property <string> subtitle-size-label <=> root.state.subtitle-size-label;
+    in-out property <string> subtitle-position-label <=> root.state.subtitle-position-label;
+    in-out property <string> subtitle-outline-label <=> root.state.subtitle-outline-label;
+    in-out property <bool> subtitle-relative <=> root.state.subtitle-relative;
+    in-out property <bool> subtitle-timeline <=> root.state.subtitle-timeline;
+
+    in-out property <float> audio-delay <=> root.state.audio-delay;
+    in-out property <string> audio-delay-label <=> root.state.audio-delay-label;
+    in-out property <bool> audio-normalize <=> root.state.audio-normalize;
+    in-out property <bool> audio-surround <=> root.state.audio-surround;
+
+    in-out property <float> brightness <=> root.state.brightness;
+    in-out property <float> contrast <=> root.state.contrast;
+    in-out property <float> saturation <=> root.state.saturation;
+    in-out property <float> hue <=> root.state.hue;
+    in-out property <float> gamma <=> root.state.gamma;
+    in-out property <float> zoom <=> root.state.zoom;
+    in-out property <bool> flip-h <=> root.state.flip-h;
+    in-out property <bool> flip-v <=> root.state.flip-v;
+    in-out property <string> brightness-label <=> root.state.brightness-label;
+    in-out property <string> contrast-label <=> root.state.contrast-label;
+    in-out property <string> saturation-label <=> root.state.saturation-label;
+    in-out property <string> hue-label <=> root.state.hue-label;
+    in-out property <string> gamma-label <=> root.state.gamma-label;
+    in-out property <string> zoom-label <=> root.state.zoom-label;
+
+    in-out property <float> speed <=> root.state.speed;
+    in-out property <float> sleep-minutes <=> root.state.sleep-minutes;
+    in-out property <string> speed-label <=> root.state.speed-label;
+    in-out property <string> sleep-label <=> root.state.sleep-label;
+    in-out property <bool> waveform <=> root.state.waveform;
+    in-out property <bool> metadata <=> root.state.metadata;
+
+    callback close();
+    callback setting-changed(string, float);
+    callback toggle-changed(string, bool);
+    callback option-changed(string, int);
+    callback preset-action(string, int);
+    /// "chapter" | "bookmark" | "bookmark-add" | "bookmark-remove" | "bookmark-rename"
+    callback timeline-action(string, int);
+
+    x: Theme.rtl ? 0px : root.view-width - self.width;
+    y: Theme.player-topbar-height;
+    width: min(340px, root.view-width);
+    height: max(0px, root.view-height - Theme.player-topbar-height - Theme.player-bottombar-height);
+    z: 28;
+    visible: root.show;
+    border-width: Theme.border-width;
+    border-color: Theme.border-default;
+    background: Theme.bg-elevated;
+
+    VerticalLayout {
+        padding: Theme.space-3;
+        spacing: Theme.space-2;
+
+        HorizontalLayout {
+            spacing: Theme.space-2;
+            Text {
+                horizontal-stretch: 1;
+                text: Strings.s_sidebar_title;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-5;
+                font-weight: 600;
+                vertical-alignment: center;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+            VfmButton {
+                width: Theme.control-height-sm;
+                text: "×";
+                clicked => { root.close(); }
+            }
+        }
+
+        // Compact tab strip: five tabs must fit a 340px panel, so the labels use the
+        // smallest type step and elide instead of overflowing.
+        HorizontalLayout {
+            spacing: 2px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.control-height-sm;
+                border-radius: Theme.radius-sm;
+                background: root.tab == 0 ? Theme.accent-soft : transparent;
+                Text {
+                    width: 100%; height: 100%;
+                    text: Strings.s_action_subtitles;
+                    color: root.tab == 0 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-1;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.tab = 0; } }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.control-height-sm;
+                border-radius: Theme.radius-sm;
+                background: root.tab == 1 ? Theme.accent-soft : transparent;
+                Text {
+                    width: 100%; height: 100%;
+                    text: Strings.s_action_audio;
+                    color: root.tab == 1 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-1;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.tab = 1; } }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.control-height-sm;
+                border-radius: Theme.radius-sm;
+                background: root.tab == 2 ? Theme.accent-soft : transparent;
+                Text {
+                    width: 100%; height: 100%;
+                    text: Strings.s_action_video;
+                    color: root.tab == 2 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-1;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.tab = 2; } }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.control-height-sm;
+                border-radius: Theme.radius-sm;
+                background: root.tab == 3 ? Theme.accent-soft : transparent;
+                Text {
+                    width: 100%; height: 100%;
+                    text: Strings.s_menu_playback;
+                    color: root.tab == 3 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-1;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.tab = 3; } }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                height: Theme.control-height-sm;
+                border-radius: Theme.radius-sm;
+                background: root.tab == 4 ? Theme.accent-soft : transparent;
+                Text {
+                    width: 100%; height: 100%;
+                    text: Strings.s_sidebar_presets;
+                    color: root.tab == 4 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-1;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.tab = 4; } }
+            }
+        }
+
+        Flickable {
+            vertical-stretch: 1;
+            // The playback tab grows with its lists, so the scroll extent is derived from
+            // the row counts instead of a fixed 720px.
+            content-height: max(
+                self.height,
+                720px + root.chapter-rows.length * 34px + root.bookmark-rows.length * 34px + root.metadata-rows.length * 28px,
+            );
+
+            if root.tab == 0: VerticalLayout {
+                spacing: Theme.space-2;
+                SliderRow {
+                    label: Strings.s_subtitle_delay;
+                    value-label: root.subtitle-delay-label;
+                    value <=> root.subtitle-delay;
+                    changed(v) => { root.setting-changed("subtitle.delay", v); }
+                }
+                SliderRow {
+                    label: Strings.s_subtitle_size;
+                    value-label: root.subtitle-size-label;
+                    value <=> root.subtitle-size;
+                    changed(v) => { root.setting-changed("subtitle.size", v); }
+                }
+                SliderRow {
+                    label: Strings.s_subtitle_position;
+                    value-label: root.subtitle-position-label;
+                    value <=> root.subtitle-position;
+                    changed(v) => { root.setting-changed("subtitle.position", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_subtitle_outline;
+                    value-label: root.subtitle-outline-label;
+                    value <=> root.subtitle-outline;
+                    changed(v) => { root.setting-changed("subtitle.outline", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_subtitle_relative_size;
+                    checked <=> root.subtitle-relative;
+                    changed(v) => { root.toggle-changed("subtitle.relative", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_subtitle_timeline;
+                    checked <=> root.subtitle-timeline;
+                    changed(v) => { root.toggle-changed("subtitle.timeline", v); }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        x: 0; y: 0;
+                        width: 100%; height: 100%;
+                        text: Strings.s_sidebar_subtitle_font;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Text {
+                        x: 0; y: 0;
+                        width: 100%; height: 100%;
+                        text: root.subtitle-font-name;
+                        color: Theme.text-primary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? left : right;
+                    }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        x: 0; y: 0;
+                        width: 100%; height: 100%;
+                        text: Strings.s_sidebar_subtitle_language;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Text {
+                        x: 0; y: 0;
+                        width: 100%; height: 100%;
+                        text: root.subtitle-language-name;
+                        color: Theme.text-primary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? left : right;
+                    }
+                }
+                VfmButton {
+                    text: Strings.s_sidebar_subtitle_add;
+                    clicked => { root.preset-action("add-subtitles", -1); }
+                }
+                VfmButton {
+                    text: Strings.s_opensubtitles_title;
+                    clicked => { root.preset-action("search-subtitles", -1); }
+                }
+            }
+
+            if root.tab == 1: VerticalLayout {
+                spacing: Theme.space-2;
+                SliderRow {
+                    label: Strings.s_sidebar_audio_delay;
+                    value-label: root.audio-delay-label;
+                    value <=> root.audio-delay;
+                    changed(v) => { root.setting-changed("audio.delay", v); }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: Strings.s_sidebar_audio_equalizer;
+                        color: Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                    }
+                }
+                VfmDropdown {
+                    options: root.eq-options;
+                    current-index <=> root.eq-index;
+                    selected(i) => { root.option-changed("audio.eq", i); }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: Strings.s_sidebar_audio_device;
+                        color: Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                    }
+                }
+                VfmDropdown {
+                    options: root.audio-device-options;
+                    current-index <=> root.audio-device-index;
+                    selected(i) => { root.option-changed("audio.device", i); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_audio_normalize;
+                    checked <=> root.audio-normalize;
+                    changed(v) => { root.toggle-changed("audio.normalize", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_audio_surround;
+                    checked <=> root.audio-surround;
+                    changed(v) => { root.toggle-changed("audio.surround", v); }
+                }
+                Text {
+                    text: Strings.s_sidebar_audio_filters;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: root.audio-filters-label;
+                        color: Theme.text-primary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if root.tab == 2: VerticalLayout {
+                spacing: Theme.space-2;
+                Rectangle {
+                    height: Theme.thumbnail-height;
+                    border-radius: Theme.radius-md;
+                    border-width: Theme.border-width;
+                    border-color: Theme.border-default;
+                    background: Theme.bg-video;
+                    clip: true;
+                    Image {
+                        width: 100%; height: 100%;
+                        source: root.preview-frame;
+                        image-fit: ImageFit.contain;
+                    }
+                }
+                Rectangle {
+                    height: Theme.control-height-sm;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: Strings.s_sidebar_video_preview;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-1;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_brightness;
+                    value-label: root.brightness-label;
+                    value <=> root.brightness;
+                    changed(v) => { root.setting-changed("video.brightness", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_contrast;
+                    value-label: root.contrast-label;
+                    value <=> root.contrast;
+                    changed(v) => { root.setting-changed("video.contrast", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_saturation;
+                    value-label: root.saturation-label;
+                    value <=> root.saturation;
+                    changed(v) => { root.setting-changed("video.saturation", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_hue;
+                    value-label: root.hue-label;
+                    value <=> root.hue;
+                    changed(v) => { root.setting-changed("video.hue", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_gamma;
+                    value-label: root.gamma-label;
+                    value <=> root.gamma;
+                    changed(v) => { root.setting-changed("video.gamma", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_video_zoom;
+                    value-label: root.zoom-label;
+                    value <=> root.zoom;
+                    changed(v) => { root.setting-changed("video.zoom", v); }
+                }
+                VfmDropdown {
+                    options: root.aspect-options;
+                    current-index <=> root.aspect-index;
+                    selected(i) => { root.option-changed("video.aspect", i); }
+                }
+                VfmDropdown {
+                    options: ["0°", "90°", "180°", "270°"];
+                    current-index <=> root.rotation-index;
+                    selected(i) => { root.option-changed("video.rotation", i); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_video_flip_h;
+                    checked <=> root.flip-h;
+                    changed(v) => { root.toggle-changed("video.flip-h", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_video_flip_v;
+                    checked <=> root.flip-v;
+                    changed(v) => { root.toggle-changed("video.flip-v", v); }
+                }
+            }
+
+            if root.tab == 3: VerticalLayout {
+                spacing: Theme.space-2;
+                SliderRow {
+                    label: Strings.s_sidebar_playback_speed;
+                    value-label: root.speed-label;
+                    value <=> root.speed;
+                    changed(v) => { root.setting-changed("playback.speed", v); }
+                }
+                SliderRow {
+                    label: Strings.s_sidebar_playback_sleep;
+                    value-label: root.sleep-label;
+                    value <=> root.sleep-minutes;
+                    changed(v) => { root.setting-changed("playback.sleep", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_subtitle_timeline;
+                    checked <=> root.subtitle-timeline;
+                    changed(v) => { root.toggle-changed("subtitle.timeline", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_playback_waveform;
+                    checked <=> root.waveform;
+                    changed(v) => { root.toggle-changed("playback.waveform", v); }
+                }
+                ToggleRow {
+                    label: Strings.s_sidebar_playback_metadata;
+                    checked <=> root.metadata;
+                    changed(v) => { root.toggle-changed("playback.metadata", v); }
+                }
+
+                SectionHeader { title: Strings.s_timeline_chapters; }
+                if root.chapter-rows.length == 0: Rectangle {
+                    height: 30px;
+                    Text {
+                        x: Theme.space-2; width: 100%; height: 100%;
+                        text: Strings.s_timeline_no_chapters;
+                        color: Theme.text-muted;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                    }
+                }
+                for row[i] in root.chapter-rows: TimelineListRow {
+                    name: row.name;
+                    time: row.time;
+                    active: row.active;
+                    activated => { root.timeline-action("chapter", i); }
+                }
+
+                SectionHeader {
+                    title: Strings.s_timeline_bookmarks;
+                    action: Strings.s_timeline_add_bookmark;
+                    show-action: true;
+                    acted => { root.timeline-action("bookmark-add", -1); }
+                }
+                if root.bookmark-rows.length == 0: Rectangle {
+                    height: 30px;
+                    Text {
+                        x: Theme.space-2; width: 100%; height: 100%;
+                        text: Strings.s_timeline_no_bookmarks;
+                        color: Theme.text-muted;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                    }
+                }
+                for row[i] in root.bookmark-rows: TimelineListRow {
+                    name: row.name;
+                    time: row.time;
+                    active: i == root.bookmark-index;
+                    activated => {
+                        root.bookmark-index = i;
+                        root.timeline-action("bookmark", i);
+                    }
+                }
+                if root.bookmark-rows.length > 0: HorizontalLayout {
+                    spacing: Theme.space-2;
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_timeline_remove_bookmark;
+                        clicked => { root.timeline-action("bookmark-remove", root.bookmark-index); }
+                    }
+                }
+
+                if root.metadata && root.metadata-rows.length > 0: SectionHeader {
+                    title: Strings.s_metadata_title;
+                }
+                if root.metadata: VerticalLayout {
+                    spacing: 0px;
+                    for row[i] in root.metadata-rows: Rectangle {
+                        height: 28px;
+                        Text {
+                            x: Theme.rtl ? 0px : Theme.space-2;
+                            width: parent.width * 0.4 - Theme.space-2; height: 100%;
+                            text: row.label;
+                            color: Theme.text-secondary;
+                            font-family: Theme.font;
+                            font-size: Theme.text-2;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-alignment: Theme.rtl ? right : left;
+                        }
+                        Text {
+                            x: parent.width * 0.42;
+                            width: parent.width * 0.58 - Theme.space-2; height: 100%;
+                            text: row.value;
+                            color: Theme.text-primary;
+                            font-family: Theme.font;
+                            font-size: Theme.text-2;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-alignment: Theme.rtl ? left : right;
+                        }
+                    }
+                }
+            }
+
+            if root.tab == 4: VerticalLayout {
+                spacing: Theme.space-2;
+                // Labels are wrapped in fixed-height rows: a bare Text has an
+                // unbounded max height, so it would swallow the panel's slack and
+                // push the preset list and the action buttons off-screen.
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: Strings.s_preset_name;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                    }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    border-radius: Theme.radius-md;
+                    border-width: Theme.border-width;
+                    border-color: Theme.border-default;
+                    background: Theme.bg-surface;
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        padding-right: Theme.space-3;
+                        TextInput {
+                            width: 100%; height: 100%;
+                            text <=> root.preset-name;
+                            color: Theme.text-primary;
+                            font-family: Theme.font;
+                            font-size: Theme.text-3;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Rectangle {
+                    height: Theme.control-height-md;
+                    Text {
+                        width: 100%; height: 100%;
+                        text: root.preset-scope-label;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+                VfmButton {
+                    text: Strings.s_preset_save;
+                    primary: true;
+                    clicked => { root.preset-action("save", -1); }
+                }
+                Flickable {
+                    // The list is the flexible region: it takes the slack so the
+                    // Apply / Rename / Delete row stays pinned to the bottom.
+                    vertical-stretch: 1;
+                    min-height: 160px;
+                    content-height: max(160px, root.preset-rows.length * 44px);
+                    VerticalLayout {
+                        spacing: Theme.space-1;
+                        if root.preset-rows.length == 0: Text {
+                            height: 44px;
+                            text: Strings.s_preset_empty;
+                            color: Theme.text-secondary;
+                            font-family: Theme.font;
+                            font-size: Theme.text-3;
+                            vertical-alignment: center;
+                        }
+                        for row[i] in root.preset-rows: Rectangle {
+                            height: 44px;
+                            border-radius: Theme.radius-md;
+                            background: row.active ? Theme.accent-soft : (prow.has-hover ? Theme.bg-surface : transparent);
+                            VerticalLayout {
+                                padding-left: Theme.space-2;
+                                spacing: 0px;
+                                Text {
+                                    text: row.name;
+                                    color: row.active ? Theme.accent : Theme.text-primary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-3;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    text: row.scope;
+                                    color: Theme.text-secondary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-1;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                            }
+                            prow := TouchArea {
+                                width: 100%; height: 100%;
+                                clicked => {
+                                    root.active-preset-index = i;
+                                    root.preset-action("select", i);
+                                }
+                                double-clicked => { root.preset-action("load", i); }
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_preset_load;
+                        clicked => { root.preset-action("load", root.active-preset-index); }
+                    }
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_preset_rename;
+                        clicked => { root.preset-action("rename", root.active-preset-index); }
+                    }
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_preset_delete;
+                        clicked => { root.preset-action("delete", root.active-preset-index); }
+                    }
+                }
+            }
+        }
+    }
+}

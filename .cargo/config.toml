@@ -1,0 +1,11 @@
+# Local toolchain workaround for THIS host (no Windows SDK Lib/ installed).
+# Rust 1.98's rust-lld on windows-msvc omits UCRT math symbols (cbrt/log2/fma/rint)
+# from the link line. tools/crt-math-shim supplies the six missing symbols.
+# CI with a full VS + Windows SDK install does not need this block.
+[env]
+# This host has no MSVC headers for the bundled SQLite C build; link the official DLL.
+SQLITE3_LIB_DIR = "D:/تجاربي/VLC MAINE 2 HY/vendor/sqlite/lib"
+SQLITE3_INCLUDE_DIR = "D:/تجاربي/VLC MAINE 2 HY/vendor/sqlite/include"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=D:/تجاربي/VLC MAINE 2 HY/tools/crt-math-shim/target/release/crt_math_shim.lib"]

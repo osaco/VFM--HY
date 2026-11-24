@@ -1,0 +1,10 @@
+[package]
+name = "vlc-wrapper"
+description = "Audited, isolated FFI wrapper over the libVLC 3.0.x C ABI (runtime loaded)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libloading.workspace = true
+thiserror.workspace = true

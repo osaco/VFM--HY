@@ -1,0 +1,68 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+      LIBVLC_PATH: ${{ github.workspace }}\vendor\libvlc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fetch the libVLC runtime
+        shell: pwsh
+        run: |
+          # The runtime is not committed. VLC publishes a portable zip per release.
+          $url = "https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.zip"
+          Invoke-WebRequest -Uri $url -OutFile vlc.zip
+          Expand-Archive vlc.zip -DestinationPath vlc-tmp
+          $inner = Get-ChildItem vlc-tmp -Directory | Select-Object -First 1
+          New-Item -ItemType Directory -Force vendor/libvlc | Out-Null
+          Copy-Item "$($inner.FullName)\*.dll" vendor/libvlc
+          Copy-Item "$($inner.FullName)\plugins" vendor/libvlc -Recurse
+
+      - name: Generated sources are current
+        shell: pwsh
+        run: |
+          python tools/generate_strings.py --check
+          python tools/generate_theme.py --check
+          python tools/generate_icons.py --check
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --release --workspace --all-targets -- -D warnings
+
+      - name: Test
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/release/deps | Out-Null
+          Copy-Item vendor/sqlite/lib/sqlite3.dll target/release/deps -ErrorAction SilentlyContinue
+          cargo test --release --workspace
+
+      - name: Build
+        run: cargo build --release -p vfm-app
+
+      - name: Package
+        shell: pwsh
+        run: ./tools/package.ps1 -SkipBuild
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vfm-windows
+          path: dist/*.zip
+          if-no-files-found: error

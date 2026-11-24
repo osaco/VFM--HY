@@ -1,0 +1,402 @@
+// Layout customisation (Phase 10): a palette of controls, the three zones of the bar, and a
+// live preview. The bar itself renders the same model, so what you see here is what ships.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import { VfmButton } from "components.slint";
+
+export struct ControlRow {
+    id: string,
+    label: string,
+    placed: bool,
+    wide: bool,
+}
+
+export struct PlacedRow {
+    id: string,
+    label: string,
+    zone: int,
+}
+
+export struct ProfileRow {
+    name: string,
+    detail: string,
+}
+
+export component CustomizeWindow inherits Window {
+    width: 820px;
+    height: 640px;
+    title: Strings.s_customize_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+
+    in-out property <[ControlRow]> palette;
+    in-out property <[PlacedRow]> placed;
+    in-out property <[ProfileRow]> profiles;
+    in-out property <string> heading;
+    in-out property <string> palette-label;
+    in-out property <string> bar-label;
+    in-out property <string> profiles-label;
+    in-out property <string> hint;
+    in-out property <string> status;
+    in-out property <bool> status-error: false;
+    in-out property <string> save-label;
+    in-out property <string> reset-label;
+    in-out property <string> close-label;
+    in-out property <string> remove-label;
+    in-out property <string> up-label;
+    in-out property <string> down-label;
+    in-out property <string> export-label;
+    in-out property <string> import-label;
+    in-out property <[string]> zones;
+    in-out property <[string]> zone-summary;
+
+    callback add(string);
+    callback remove(string);
+    callback move-up(string);
+    callback move-down(string);
+    callback reset();
+    callback save-profile(string);
+    callback load-profile(int);
+    callback delete-profile(int);
+    callback export-profile(int);
+    callback import-profile();
+    callback dismissed();
+
+    VerticalLayout {
+        padding: Theme.space-5;
+        spacing: Theme.space-3;
+
+        Text {
+            text: root.heading;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-6;
+            font-weight: 600;
+            height: Theme.text-6 * Theme.line-height;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-4;
+            vertical-stretch: 1;
+
+            // ---- palette ----
+            Rectangle {
+                width: 220px;
+                vertical-stretch: 1;
+                background: transparent;
+                VerticalLayout {
+                    width: 100%; height: 100%;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: root.palette-label;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        height: Theme.text-2 * Theme.line-height;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: palette-layout.preferred-height;
+                        content-width: self.width;
+                        palette-layout := VerticalLayout {
+                            spacing: 2px;
+                            for row[i] in root.palette: Rectangle {
+                                height: 30px;
+                                border-radius: Theme.radius-sm;
+                                background: row.placed
+                                    ? transparent
+                                    : (add-touch.has-hover ? Theme.bg-surface : Theme.bg-control);
+                                opacity: row.placed ? 0.45 : 1;
+                                Text {
+                                    x: Theme.space-2;
+                                    width: parent.width - Theme.space-4;
+                                    height: 100%;
+                                    text: row.label;
+                                    color: row.placed ? Theme.text-secondary : Theme.text-body;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-2;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: Theme.rtl ? right : left;
+                                }
+                                add-touch := TouchArea {
+                                    width: 100%; height: 100%;
+                                    clicked => { if (!row.placed) { root.add(row.id); } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- bar preview ----
+            Rectangle {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                background: transparent;
+                VerticalLayout {
+                    width: 100%; height: 100%;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: root.bar-label;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        height: Theme.text-2 * Theme.line-height;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    // The preview frame: three zones, mirroring the player's strip.
+                    Rectangle {
+                        height: 88px;
+                        border-radius: Theme.radius-lg;
+                        background: Theme.bg-surface;
+                        border-width: Theme.border-width;
+                        border-color: Theme.border-subtle;
+                        // leading
+                        Rectangle {
+                            x: Theme.space-3;
+                            y: Theme.space-3;
+                            width: parent.width / 3 - Theme.space-4;
+                            height: 30px;
+                            border-radius: Theme.radius-sm;
+                            background: Theme.bg-control;
+                            Text {
+                                width: 100%; height: 100%;
+                                text: root.zone-summary[0];
+                                color: Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-2;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle {
+                            x: (parent.width - self.width) / 2;
+                            y: Theme.space-3;
+                            width: parent.width / 3;
+                            height: 30px;
+                            border-radius: Theme.radius-sm;
+                            background: Theme.bg-control;
+                            Text {
+                                width: 100%; height: 100%;
+                                text: root.zone-summary[1];
+                                color: Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-2;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Rectangle {
+                            x: parent.width - self.width - Theme.space-3;
+                            y: Theme.space-3;
+                            width: parent.width / 3 - Theme.space-4;
+                            height: 30px;
+                            border-radius: Theme.radius-sm;
+                            background: Theme.bg-control;
+                            Text {
+                                width: 100%; height: 100%;
+                                text: root.zone-summary[2];
+                                color: Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-2;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                        Text {
+                            x: Theme.space-3;
+                            y: 46px;
+                            width: parent.width - Theme.space-6;
+                            height: parent.height - 52px;
+                            text: root.hint;
+                            color: Theme.text-secondary;
+                            font-family: Theme.font;
+                            font-size: Theme.text-2;
+                            wrap: word-wrap;
+                            vertical-alignment: top;
+                            horizontal-alignment: Theme.rtl ? right : left;
+                        }
+                    }
+
+                    // ---- placed list ----
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: placed-layout.preferred-height;
+                        content-width: self.width;
+                        placed-layout := VerticalLayout {
+                            spacing: 2px;
+                            for row[i] in root.placed: Rectangle {
+                                height: 34px;
+                                border-radius: Theme.radius-sm;
+                                background: row-touch.has-hover ? Theme.bg-surface : transparent;
+                                Text {
+                                    x: Theme.space-2;
+                                    width: parent.width - 150px;
+                                    height: 100%;
+                                    text: row.label;
+                                    color: Theme.text-primary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-2;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: Theme.rtl ? right : left;
+                                }
+                                Text {
+                                    x: parent.width - 132px;
+                                    width: 40px;
+                                    height: 100%;
+                                    text: root.zones[row.zone];
+                                    color: Theme.text-secondary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-1;
+                                    vertical-alignment: center;
+                                }
+                                Text {
+                                    x: parent.width - 92px;
+                                    width: 26px;
+                                    height: 100%;
+                                    text: root.up-label;
+                                    color: Theme.text-secondary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-2;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
+                                up-touch := TouchArea {
+                                    x: parent.width - 92px;
+                                    width: 26px; height: 100%;
+                                    clicked => { root.move-up(row.id); }
+                                }
+                                Text {
+                                    x: parent.width - 62px;
+                                    width: 26px;
+                                    height: 100%;
+                                    text: root.down-label;
+                                    color: Theme.text-secondary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-2;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
+                                down-touch := TouchArea {
+                                    x: parent.width - 62px;
+                                    width: 26px; height: 100%;
+                                    clicked => { root.move-down(row.id); }
+                                }
+                                Text {
+                                    x: parent.width - 32px;
+                                    width: 24px;
+                                    height: 100%;
+                                    text: root.remove-label;
+                                    color: Theme.danger;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-3;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
+                                remove-touch := TouchArea {
+                                    x: parent.width - 32px;
+                                    width: 24px; height: 100%;
+                                    clicked => { root.remove(row.id); }
+                                }
+                                row-touch := TouchArea {
+                                    width: 100%; height: 100%;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- profiles ----
+            Rectangle {
+                width: 210px;
+                vertical-stretch: 1;
+                background: transparent;
+                VerticalLayout {
+                    width: 100%; height: 100%;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: root.profiles-label;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        height: Theme.text-2 * Theme.line-height;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Flickable {
+                        height: 150px;
+                        content-height: profile-layout.preferred-height;
+                        content-width: self.width;
+                        profile-layout := VerticalLayout {
+                            spacing: 2px;
+                            for row[i] in root.profiles: Rectangle {
+                                height: 32px;
+                                border-radius: Theme.radius-sm;
+                                background: profile-touch.has-hover ? Theme.bg-surface : Theme.bg-control;
+                                Text {
+                                    x: Theme.space-2;
+                                    width: parent.width - Theme.space-4;
+                                    height: 100%;
+                                    text: row.name;
+                                    color: Theme.text-body;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-2;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-alignment: Theme.rtl ? right : left;
+                                }
+                                profile-touch := TouchArea {
+                                    width: 100%; height: 100%;
+                                    clicked => { root.load-profile(i); }
+                                }
+                            }
+                        }
+                    }
+                    VfmButton {
+                        text: root.save-label;
+                        clicked => { root.save-profile(""); }
+                    }
+                    VfmButton {
+                        text: root.export-label;
+                        clicked => { root.export-profile(0); }
+                    }
+                    VfmButton {
+                        text: root.import-label;
+                        clicked => { root.import-profile(); }
+                    }
+                    VfmButton {
+                        text: root.reset-label;
+                        clicked => { root.reset(); }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            height: Theme.control-height-lg;
+            spacing: Theme.space-2;
+            alignment: Theme.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+            Text {
+                text: root.status;
+                color: root.status-error ? Theme.danger : Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                horizontal-alignment: Theme.rtl ? right : left;
+                overflow: elide;
+            }
+            VfmButton {
+                text: root.close-label;
+                primary: true;
+                clicked => { root.dismissed(); }
+            }
+        }
+    }
+}

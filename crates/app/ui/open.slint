@@ -1,0 +1,555 @@
+// Open-media dialog (Phase 9): one window, one panel per source, plus convert and stream.
+//
+// Every panel is a thin shell over `vfm_core::open_media` — the rules (what counts as a URL,
+// how the sout chains are built) live in Rust and are unit-tested there.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import { VfmButton } from "components.slint";
+
+export struct RecentRow {
+    title: string,
+    detail: string,
+    path: string,
+}
+
+component FieldRow inherits Rectangle {
+    in property <string> label;
+    in-out property <string> text;
+    in property <string> placeholder;
+    callback edited(string);
+    callback browse();
+
+    height: 62px;
+    Text {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: 0px;
+        width: parent.width - 96px;
+        height: 20px;
+        text: root.label;
+        color: Theme.text-secondary;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+    Rectangle {
+        y: 24px;
+        width: parent.width;
+        height: Theme.control-height-md;
+        border-radius: Theme.radius-md;
+        border-width: Theme.border-width;
+        border-color: input.has-focus ? Theme.focus-ring : Theme.border-default;
+        background: Theme.bg-control;
+        input := TextInput {
+            x: Theme.space-2;
+            width: parent.width - Theme.space-4;
+            height: 100%;
+            text <=> root.text;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            vertical-alignment: center;
+            horizontal-alignment: Theme.rtl ? right : left;
+            edited => { root.edited(root.text); }
+            accepted => { root.edited(root.text); }
+        }
+        if root.text == "": Text {
+            x: Theme.space-2;
+            width: parent.width - Theme.space-4;
+            height: 100%;
+            text: root.placeholder;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            vertical-alignment: center;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+    }
+}
+
+export component OpenMediaWindow inherits Window {
+    width: 720px;
+    height: 560px;
+    title: Strings.s_open_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+
+    in-out property <int> mode: 0;
+    in-out property <[string]> modes;
+    in-out property <[string]> mode-hints;
+
+    in-out property <string> path-text;
+    in-out property <string> path-hint;
+    in-out property <string> url-text;
+    in-out property <string> clipboard-text;
+
+    in-out property <string> capture-video;
+    in-out property <string> capture-audio;
+    in-out property <string> capture-size;
+    in-out property <string> capture-fps;
+
+    in-out property <[RecentRow]> recent;
+    in-out property <string> recent-empty;
+
+    in-out property <[string]> preset-labels;
+    in-out property <int> preset-index: 0;
+    in-out property <string> destination-text;
+    in-out property <string> stream-port;
+    in-out property <string> stream-path;
+    in-out property <string> stream-url;
+
+    in-out property <bool> busy: false;
+    in-out property <float> progress: 0;
+    in-out property <string> status;
+    in-out property <bool> status-error: false;
+
+    in-out property <string> browse-label;
+    in-out property <string> cancel-label;
+    in-out property <string> action-label;
+
+    callback mode-picked(int);
+    callback path-edited(string);
+    callback url-edited(string);
+    callback capture-video-edited(string);
+    callback capture-audio-edited(string);
+    callback capture-size-edited(string);
+    callback capture-fps-edited(string);
+    callback destination-edited(string);
+    callback stream-port-edited(string);
+    callback stream-path-edited(string);
+    callback preset-picked(int);
+    callback browse-path();
+    callback browse-destination();
+    callback browse-folder();
+    callback use-clipboard();
+    callback recent-picked(int);
+    callback action();
+    callback stop();
+    callback dismissed();
+
+    VerticalLayout {
+        padding: Theme.space-5;
+        spacing: Theme.space-4;
+
+        Text {
+            text: Strings.s_open_title;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-6;
+            font-weight: 600;
+            height: Theme.text-6 * Theme.line-height;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+
+        HorizontalLayout {
+            spacing: Theme.space-4;
+            vertical-stretch: 1;
+
+            // ---- mode rail ----
+            Rectangle {
+                width: 176px;
+                background: transparent;
+                VerticalLayout {
+                    spacing: 2px;
+                    for label[i] in root.modes: Rectangle {
+                        height: 34px;
+                        border-radius: Theme.radius-md;
+                        background: i == root.mode ? Theme.accent-soft : (mode-touch.has-hover ? Theme.bg-surface : transparent);
+                        Text {
+                            x: Theme.space-3;
+                            width: parent.width - Theme.space-4;
+                            height: 100%;
+                            text: label;
+                            color: i == root.mode ? Theme.accent : Theme.text-body;
+                            font-family: Theme.font;
+                            font-size: Theme.text-3;
+                            vertical-alignment: center;
+                            horizontal-alignment: Theme.rtl ? right : left;
+                        }
+                        mode-touch := TouchArea {
+                            width: 100%; height: 100%;
+                            clicked => { root.mode-picked(i); }
+                        }
+                    }
+                }
+            }
+
+            // ---- panel ----
+            Rectangle {
+                horizontal-stretch: 1;
+                background: transparent;
+
+                // 0 file, 1 folder
+                if root.mode == 0 || root.mode == 1: VerticalLayout {
+                    spacing: Theme.space-3;
+                    FieldRow {
+                        label: root.mode == 0 ? Strings.s_open_file_label : Strings.s_open_folder_label;
+                        text <=> root.path-text;
+                        placeholder: root.path-hint;
+                        edited(t) => { root.path-edited(t); }
+                        browse => { root.mode == 0 ? root.browse-path() : root.browse-folder(); }
+                    }
+                    HorizontalLayout {
+                        height: Theme.control-height-md;
+                        spacing: Theme.space-2;
+                        VfmButton {
+                            text: root.browse-label;
+                            clicked => { root.mode == 0 ? root.browse-path() : root.browse-folder(); }
+                        }
+                    }
+                    Text {
+                        text: root.mode == 0 ? Strings.s_open_file_hint : Strings.s_open_folder_hint;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                        vertical-alignment: top;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+
+                // 2 network
+                if root.mode == 2: VerticalLayout {
+                    spacing: Theme.space-3;
+                    FieldRow {
+                        label: Strings.s_open_url_label;
+                        text <=> root.url-text;
+                        placeholder: "https://example.com/stream.m3u8";
+                        edited(t) => { root.url-edited(t); }
+                        browse => { root.use-clipboard(); }
+                    }
+                    HorizontalLayout {
+                        height: Theme.control-height-md;
+                        spacing: Theme.space-2;
+                        VfmButton {
+                            text: Strings.s_open_paste;
+                            clicked => { root.use-clipboard(); }
+                        }
+                    }
+                    Text {
+                        text: Strings.s_open_network_hint;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                        vertical-alignment: top;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+
+                // 3 capture
+                if root.mode == 3: VerticalLayout {
+                    spacing: Theme.space-2;
+                    FieldRow {
+                        label: Strings.s_open_capture_video;
+                        text <=> root.capture-video;
+                        placeholder: Strings.s_open_capture_default;
+                        edited(t) => { root.capture-video-edited(t); }
+                        browse => { }
+                    }
+                    FieldRow {
+                        label: Strings.s_open_capture_audio;
+                        text <=> root.capture-audio;
+                        placeholder: Strings.s_open_capture_default;
+                        edited(t) => { root.capture-audio-edited(t); }
+                        browse => { }
+                    }
+                    HorizontalLayout {
+                        height: 62px;
+                        spacing: Theme.space-3;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            FieldRow {
+                                label: Strings.s_open_capture_size;
+                                text <=> root.capture-size;
+                                placeholder: "1280x720";
+                                edited(t) => { root.capture-size-edited(t); }
+                                browse => { }
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            FieldRow {
+                                label: Strings.s_open_capture_fps;
+                                text <=> root.capture-fps;
+                                placeholder: "30";
+                                edited(t) => { root.capture-fps-edited(t); }
+                                browse => { }
+                            }
+                        }
+                    }
+                    Text {
+                        text: Strings.s_open_capture_hint;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                        vertical-alignment: top;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+
+                // 4 clipboard
+                if root.mode == 4: VerticalLayout {
+                    spacing: Theme.space-3;
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: Theme.radius-md;
+                        border-width: Theme.border-width;
+                        border-color: Theme.border-subtle;
+                        background: Theme.bg-surface;
+                        Text {
+                            x: Theme.space-3;
+                            y: Theme.space-3;
+                            width: parent.width - Theme.space-6;
+                            height: parent.height - Theme.space-6;
+                            text: root.clipboard-text == "" ? Strings.s_open_clipboard_empty : root.clipboard-text;
+                            color: root.clipboard-text == "" ? Theme.text-secondary : Theme.text-body;
+                            font-family: Theme.font;
+                            font-size: Theme.text-3;
+                            wrap: word-wrap;
+                            vertical-alignment: top;
+                            horizontal-alignment: Theme.rtl ? right : left;
+                        }
+                    }
+                    HorizontalLayout {
+                        height: Theme.control-height-md;
+                        spacing: Theme.space-2;
+                        VfmButton {
+                            text: Strings.s_open_paste;
+                            clicked => { root.use-clipboard(); }
+                        }
+                    }
+                }
+
+                // 5 recent
+                if root.mode == 5: Rectangle {
+                    background: transparent;
+                    if root.recent.length == 0: Text {
+                        text: root.recent-empty;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Flickable {
+                        width: 100%; height: 100%;
+                        content-height: recent-layout.preferred-height;
+                        content-width: self.width;
+                        recent-layout := VerticalLayout {
+                            spacing: 2px;
+                            for row[i] in root.recent: Rectangle {
+                                height: 44px;
+                                border-radius: Theme.radius-sm;
+                                background: recent-touch.has-hover ? Theme.bg-surface : transparent;
+                                Text {
+                                    x: Theme.space-2;
+                                    y: 4px;
+                                    width: parent.width - Theme.space-4;
+                                    height: 20px;
+                                    text: row.title;
+                                    color: Theme.text-primary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-3;
+                                    overflow: elide;
+                                    horizontal-alignment: Theme.rtl ? right : left;
+                                }
+                                Text {
+                                    x: Theme.space-2;
+                                    y: 22px;
+                                    width: parent.width - Theme.space-4;
+                                    height: 16px;
+                                    text: row.detail;
+                                    color: Theme.text-secondary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-1;
+                                    overflow: elide;
+                                    horizontal-alignment: Theme.rtl ? right : left;
+                                }
+                                recent-touch := TouchArea {
+                                    width: 100%; height: 100%;
+                                    clicked => { root.recent-picked(i); }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6 convert
+                if root.mode == 6: VerticalLayout {
+                    spacing: Theme.space-3;
+                    FieldRow {
+                        label: Strings.s_open_destination;
+                        text <=> root.destination-text;
+                        placeholder: "C:/media/movie (converted).mp4";
+                        edited(t) => { root.destination-edited(t); }
+                        browse => { root.browse-destination(); }
+                    }
+                    HorizontalLayout {
+                        height: Theme.control-height-md;
+                        spacing: Theme.space-2;
+                        alignment: start;
+                        for label[i] in root.preset-labels: Rectangle {
+                            height: 100%;
+                            width: 92px;
+                            horizontal-stretch: 0;
+                            border-radius: Theme.radius-md;
+                            border-width: Theme.border-width;
+                            border-color: i == root.preset-index ? Theme.accent : Theme.border-default;
+                            background: i == root.preset-index ? Theme.accent-soft : Theme.bg-control;
+                            Text {
+                                width: 100%; height: 100%;
+                                text: label;
+                                color: i == root.preset-index ? Theme.accent : Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-2;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                            }
+                            convert-preset-touch := TouchArea {
+                                width: 100%; height: 100%;
+                                clicked => { root.preset-picked(i); }
+                            }
+                        }
+                    }
+                    VfmButton {
+                        text: root.browse-label;
+                        clicked => { root.browse-destination(); }
+                    }
+                    Text {
+                        text: Strings.s_open_convert_hint;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                        vertical-alignment: top;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+
+                // 7 stream
+                if root.mode == 7: VerticalLayout {
+                    spacing: Theme.space-3;
+                    HorizontalLayout {
+                        height: 62px;
+                        spacing: Theme.space-3;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            FieldRow {
+                                label: Strings.s_open_stream_port;
+                                text <=> root.stream-port;
+                                placeholder: "8080";
+                                edited(t) => { root.stream-port-edited(t); }
+                                browse => { }
+                            }
+                        }
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            FieldRow {
+                                label: Strings.s_open_stream_path;
+                                text <=> root.stream-path;
+                                placeholder: "stream";
+                                edited(t) => { root.stream-path-edited(t); }
+                                browse => { }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        height: Theme.control-height-md;
+                        spacing: Theme.space-2;
+                        alignment: start;
+                        for label[i] in root.preset-labels: Rectangle {
+                            height: 100%;
+                            width: 92px;
+                            horizontal-stretch: 0;
+                            border-radius: Theme.radius-md;
+                            border-width: Theme.border-width;
+                            border-color: i == root.preset-index ? Theme.accent : Theme.border-default;
+                            background: i == root.preset-index ? Theme.accent-soft : Theme.bg-control;
+                            Text {
+                                width: 100%; height: 100%;
+                                text: label;
+                                color: i == root.preset-index ? Theme.accent : Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-2;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                            }
+                            stream-preset-touch := TouchArea {
+                                width: 100%; height: 100%;
+                                clicked => { root.preset-picked(i); }
+                            }
+                        }
+                    }
+                    Text {
+                        text: root.stream-url;
+                        color: Theme.accent;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        height: Theme.text-3 * Theme.line-height;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Text {
+                        text: Strings.s_open_stream_hint;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        wrap: word-wrap;
+                        vertical-stretch: 1;
+                        vertical-alignment: top;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+            }
+        }
+
+        // ---- progress ----
+        if root.busy: Rectangle {
+            height: 6px;
+            border-radius: Theme.radius-pill;
+            background: Theme.bg-control;
+            Rectangle {
+                width: max(parent.width * root.progress, 0px);
+                height: 100%;
+                border-radius: Theme.radius-pill;
+                background: Theme.accent;
+            }
+        }
+
+        // ---- footer ----
+        HorizontalLayout {
+            height: Theme.control-height-lg;
+            spacing: Theme.space-2;
+            alignment: Theme.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+            Text {
+                text: root.status;
+                color: root.status-error ? Theme.danger : Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                horizontal-alignment: Theme.rtl ? right : left;
+                overflow: elide;
+            }
+            if root.busy: VfmButton {
+                text: Strings.s_open_stop;
+                clicked => { root.stop(); }
+            }
+            VfmButton {
+                text: root.cancel-label;
+                clicked => { root.dismissed(); }
+            }
+            VfmButton {
+                text: root.action-label;
+                primary: true;
+                disabled: root.busy;
+                clicked => { root.action(); }
+            }
+        }
+    }
+}

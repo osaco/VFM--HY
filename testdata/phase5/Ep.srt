@@ -1,0 +1,8 @@
+1
+00:00:01,000 --> 00:00:06,000
+Phase 5 — own subtitle renderer
+
+2
+00:00:06,500 --> 00:00:12,000
+مرحباً — Arabic shaping works
+

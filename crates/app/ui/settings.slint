@@ -1,0 +1,851 @@
+// Settings window (Phase 8). Rows are generated from the core settings schema, so adding
+// a setting never means touching this file.
+//
+// kind codes must match settings_ui.rs:
+//   0 toggle, 1 choice, 2 slider, 3 text, 4 secret, 5 folder, 6 accent swatch
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import { VfmButton, VfmToggle, VfmSlider, VfmSearchField } from "components.slint";
+
+export struct SettingRow {
+    key: string,
+    label: string,
+    help: string,
+    kind: int,
+    checked: bool,
+    number: float,
+    min: float,
+    max: float,
+    step: float,
+    choice-index: int,
+    options-start: int,
+    options-count: int,
+    value-text: string,
+    suffix: string,
+    advanced: bool,
+    modified: bool,
+    tag: string,
+}
+
+export struct CategoryRow {
+    label: string,
+    count: int,
+    modified: int,
+    index: int,
+    selected: bool,
+}
+
+export struct HotkeyRow {
+    label: string,
+    combo: string,
+    action: int,
+    conflict: bool,
+}
+
+// A stateless switch: it reads `checked` and reports a click, so the row model stays the
+// single source of truth (a self-toggling component would fight its own binding).
+component Switch inherits Rectangle {
+    in property <bool> checked: false;
+    callback toggled();
+
+    width: 44px;
+    height: Theme.control-height-sm;
+    border-radius: Theme.radius-pill;
+    background: root.checked
+        ? (touch.pressed ? Theme.accent-pressed : Theme.accent)
+        : (touch.has-hover ? Theme.border-default : Theme.border-default);
+    opacity: 1;
+
+    Rectangle {
+        x: root.checked ? root.width - self.width - Theme.space-1 : Theme.space-1;
+        y: Theme.space-1;
+        width: self.height;
+        height: root.height - Theme.space-2;
+        border-radius: Theme.radius-pill;
+        background: root.checked ? #FFFFFF : Theme.text-primary;
+    }
+
+    touch := TouchArea {
+        width: 100%; height: 100%;
+        clicked => { root.toggled(); }
+    }
+}
+
+// A short combo shown as a key cap, e.g. "Ctrl+B".
+component KeyCap inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    in property <bool> warn: false;
+
+    height: 24px;
+    width: 110px;
+    border-radius: Theme.radius-sm;
+    border-width: Theme.border-width;
+    border-color: root.warn
+        ? Theme.danger
+        : (root.active ? Theme.accent : Theme.border-default);
+    background: root.active ? Theme.accent-soft : Theme.bg-control;
+
+    Text {
+        width: 100%; height: 100%;
+        text: root.text;
+        color: root.warn ? Theme.danger : Theme.text-primary;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+}
+
+// One settings row. Height grows when the help text or the option list is expanded, so
+// nothing is ever drawn in an overlay the scroll area would clip.
+component SettingRowView inherits Rectangle {
+    in property <SettingRow> data;
+    in property <bool> help-open: false;
+    in property <bool> options-open: false;
+    in property <[string]> pool;
+    in property <[color]> swatch-colors;
+    in property <string> browse-label;
+
+    callback toggled(string, bool);
+    callback chosen(string, int);
+    callback numbered(string, float);
+    callback committed(string, float);
+    callback texted(string, string);
+    callback browsed(string);
+    callback reset(string);
+    callback help-toggled(string);
+    callback options-toggled(string);
+
+    property <length> trail-width: 300px;
+    property <length> help-height: Theme.text-2 * Theme.line-height * 2 + Theme.space-2;
+    property <length> options-height: (root.data.options-count * 28px) + Theme.space-2;
+
+    // Local mirrors: the widgets own their state so an external binding is never broken,
+    // and every model update re-syncs them.
+    property <float> local-number: 0;
+    property <string> local-text: "";
+    init => {
+        self.local-number = root.data.number;
+        self.local-text = root.data.value-text;
+    }
+    changed data => {
+        self.local-number = root.data.number;
+        self.local-text = root.data.value-text;
+    }
+
+    height: Theme.control-height-lg + Theme.space-3
+        + (root.help-open ? root.help-height : 0px)
+        + (root.options-open ? root.options-height : 0px);
+    background: hover.has-hover ? Theme.bg-surface : transparent;
+
+    hover := TouchArea { width: 100%; height: 100%; }
+
+    // ---- label column ----
+    Rectangle {
+        x: Theme.rtl ? Theme.space-5 + root.trail-width : Theme.space-5;
+        y: Theme.space-3;
+        width: parent.width - Theme.space-5 * 2 - root.trail-width;
+        height: Theme.control-height-lg;
+
+        HorizontalLayout {
+            spacing: Theme.space-2;
+            alignment: start;
+            Text {
+                text: root.data.label;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-4;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+            if root.data.modified: Rectangle {
+                width: 6px; height: 6px;
+                border-radius: Theme.radius-pill;
+                background: Theme.accent;
+                y: (parent.height - self.height) / 2;
+            }
+            Rectangle {
+                width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-pill;
+                background: info-touch.has-hover ? Theme.accent-soft : transparent;
+                Image {
+                    width: 100%; height: 100%;
+                    source: @image-url("../../../assets/icons/control/info.svg");
+                    opacity: root.help-open ? 0.95 : 0.5;
+                }
+                info-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.help-toggled(root.data.key); }
+                }
+            }
+            // Reset affordance: sits inline after the info dot so it never collides with the
+            // label, and only rows that differ from the default show it.
+            if root.data.modified: Rectangle {
+                width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                y: (parent.height - self.height) / 2;
+                border-radius: Theme.radius-pill;
+                background: reset-touch.has-hover ? Theme.bg-surface : transparent;
+                Image {
+                    width: 100%; height: 100%;
+                    source: @image-url("../../../assets/icons/control/restore.svg");
+                    opacity: 0.7;
+                }
+                reset-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.reset(root.data.key); }
+                }
+            }
+            if root.data.tag != "": Text {
+                text: root.data.tag;
+                color: Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-1;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    if root.help-open: Text {
+        x: Theme.rtl ? Theme.space-5 + root.trail-width : Theme.space-5;
+        y: Theme.space-3 + Theme.control-height-lg;
+        width: parent.width - Theme.space-5 * 2 - root.trail-width;
+        height: root.help-height;
+        text: root.data.help;
+        color: Theme.text-secondary;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        wrap: word-wrap;
+        vertical-alignment: top;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+
+    // ---- control column, anchored to the trailing edge ----
+    if root.data.kind == 0: Rectangle {
+        x: Theme.rtl ? Theme.space-5 : parent.width - self.width - Theme.space-5;
+        y: (Theme.control-height-lg + Theme.space-3 - self.height) / 2;
+        width: 44px; height: Theme.control-height-sm;
+        Switch {
+            width: 100%; height: 100%;
+            checked: root.data.checked;
+            toggled => { root.toggled(root.data.key, !root.data.checked); }
+        }
+    }
+
+    if root.data.kind == 1: Rectangle {
+        x: Theme.rtl ? Theme.space-5 : parent.width - self.width - Theme.space-5;
+        y: (Theme.control-height-lg + Theme.space-3 - self.height) / 2;
+        width: 190px; height: Theme.control-height-sm;
+        border-radius: Theme.radius-md;
+        border-width: Theme.border-width;
+        border-color: root.options-open ? Theme.accent : Theme.border-default;
+        background: choice-touch.has-hover ? Theme.bg-elevated : Theme.bg-control;
+        HorizontalLayout {
+            width: 100%; height: 100%;
+            padding-left: Theme.space-3;
+            padding-right: Theme.space-3;
+            spacing: Theme.space-2;
+            Text {
+                text: root.data.value-text;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-3;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+                overflow: elide;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+            Text {
+                text: root.options-open ? "⌃" : "⌄";
+                color: Theme.text-secondary;
+                font-size: Theme.text-3;
+                vertical-alignment: center;
+            }
+        }
+        choice-touch := TouchArea {
+            width: 100%; height: 100%;
+            clicked => { root.options-toggled(root.data.key); }
+        }
+    }
+
+    if root.data.kind == 6: Rectangle {
+        x: Theme.rtl ? Theme.space-5 : parent.width - self.width - Theme.space-5;
+        y: (Theme.control-height-lg + Theme.space-3 - self.height) / 2;
+        width: (root.data.options-count * 26px) - 2px;
+        height: 26px;
+        HorizontalLayout {
+            width: 100%; height: 100%;
+            spacing: 2px;
+            for i in root.data.options-count: Rectangle {
+                width: 24px; height: 24px;
+                border-radius: Theme.radius-pill;
+                background: root.swatch-colors[i];
+                border-width: i == root.data.choice-index ? 2px : 0px;
+                border-color: Theme.text-primary;
+                swatch-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.chosen(root.data.key, i); }
+                }
+            }
+        }
+    }
+
+    // Expanded option list, drawn inline so the scroll area cannot clip it.
+    if root.options-open: Rectangle {
+        x: Theme.rtl ? Theme.space-4 : Theme.space-5;
+        y: Theme.space-3 + Theme.control-height-lg + (root.help-open ? root.help-height : 0px);
+        width: parent.width - Theme.space-5 * 2;
+        height: root.options-height;
+        VerticalLayout {
+            spacing: 0px;
+            for i in root.data.options-count: Rectangle {
+                height: 28px;
+                border-radius: Theme.radius-sm;
+                background: i == root.data.choice-index
+                    ? Theme.accent-soft
+                    : (opt-touch.has-hover ? Theme.bg-surface : transparent);
+                Text {
+                    x: Theme.rtl ? Theme.space-3 : Theme.space-2;
+                    width: parent.width - Theme.space-4 - Theme.icon-size-sm;
+                    height: 100%;
+                    text: root.pool[root.data.options-start + i];
+                    color: i == root.data.choice-index ? Theme.accent : Theme.text-body;
+                    font-family: Theme.font;
+                    font-size: Theme.text-3;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                if i == root.data.choice-index: Image {
+                    x: parent.width - Theme.icon-size-sm - Theme.space-2;
+                    y: (parent.height - self.height) / 2;
+                    width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                    source: @image-url("../../../assets/icons/control/check.svg");
+                }
+                opt-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.chosen(root.data.key, i); }
+                }
+            }
+        }
+    }
+
+    if root.data.kind == 2: Rectangle {
+        x: Theme.rtl ? Theme.space-5 : parent.width - self.width - Theme.space-5;
+        y: (Theme.control-height-lg + Theme.space-3 - self.height) / 2;
+        width: 300px; height: Theme.control-height-md;
+        HorizontalLayout {
+            width: 100%; height: 100%;
+            spacing: Theme.space-3;
+            VfmSlider {
+                horizontal-stretch: 1;
+                value <=> root.local-number;
+                changed(v) => {
+                    root.numbered(root.data.key, root.data.min + v * (root.data.max - root.data.min));
+                }
+                released(v) => {
+                    root.committed(root.data.key, root.data.min + v * (root.data.max - root.data.min));
+                }
+            }
+            Text {
+                width: 62px;
+                text: root.data.value-text + root.data.suffix;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                vertical-alignment: center;
+                horizontal-alignment: Theme.rtl ? left : right;
+            }
+        }
+    }
+
+    if root.data.kind == 3 || root.data.kind == 4 || root.data.kind == 5: Rectangle {
+        x: Theme.rtl ? Theme.space-5 : parent.width - self.width - Theme.space-5;
+        y: (Theme.control-height-lg + Theme.space-3 - self.height) / 2;
+        width: 300px; height: Theme.control-height-sm;
+        HorizontalLayout {
+            width: 100%; height: 100%;
+            spacing: Theme.space-2;
+            Rectangle {
+                horizontal-stretch: 1; height: 100%;
+                border-radius: Theme.radius-md;
+                border-width: Theme.border-width;
+                border-color: input.has-focus ? Theme.focus-ring : Theme.border-default;
+                background: Theme.bg-control;
+                input := TextInput {
+                    x: Theme.space-2;
+                    width: parent.width - Theme.space-4;
+                    height: 100%;
+                    text <=> root.local-text;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-3;
+                    vertical-alignment: center;
+                    input-type: root.data.kind == 4 ? InputType.password : InputType.text;
+                    edited => { root.texted(root.data.key, root.local-text); }
+                }
+            }
+            if root.data.kind == 5: VfmButton {
+                text: root.browse-label;
+                height: 100%;
+                clicked => { root.browsed(root.data.key); }
+            }
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        x: Theme.space-5;
+        width: parent.width - Theme.space-5 * 2;
+        height: 1px;
+        background: Theme.border-subtle;
+    }
+}
+
+export component SettingsWindow inherits Window {
+    width: 980px;
+    height: 700px;
+    title: Strings.s_settings_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+
+    in-out property <[SettingRow]> rows;
+    in-out property <[CategoryRow]> categories;
+    in-out property <[string]> options;
+    in-out property <[color]> accents;
+    in-out property <[HotkeyRow]> hotkey-rows;
+
+    in-out property <string> search-text;
+    in-out property <string> heading;
+    in-out property <string> advanced-label;
+    in-out property <string> modified-label;
+    in-out property <string> no-results-label;
+    in-out property <string> shortcuts-label;
+    in-out property <string> browse-label;
+    in-out property <string> close-label;
+    in-out property <string> reset-all-label;
+
+    in-out property <int> current-category: 0;
+    in-out property <bool> show-advanced: false;
+    in-out property <bool> searching: false;
+    in-out property <bool> empty: false;
+    in-out property <int> dirty-count: 0;
+
+    // Row-local expansion state; one value each keeps the model read-only.
+    in-out property <string> open-help;
+    in-out property <string> open-options;
+
+    // ---- hotkeys dialog ----
+    in-out property <bool> hotkeys-show: false;
+    in-out property <int> capture-action: -1;
+    in-out property <string> capture-text;
+    in-out property <string> hotkeys-title;
+    in-out property <string> hotkeys-hint;
+    in-out property <string> hotkeys-status;
+    in-out property <bool> hotkeys-conflict: false;
+
+    callback done();
+    callback category-picked(int);
+    callback search-changed(string);
+    callback advanced-toggled();
+    callback reset-all();
+    callback setting-bool(string, bool);
+    callback setting-choice(string, int);
+    callback setting-number(string, float);
+    callback setting-committed(string, float);
+    callback setting-text(string, string);
+    callback setting-browse(string);
+    callback setting-reset(string);
+    callback hotkeys-open();
+    callback hotkeys-close();
+    callback hotkey-capture(int);
+    callback hotkey-captured(string, bool, bool, bool);
+    callback hotkey-reset();
+    callback hotkey-import();
+    callback hotkey-export();
+
+    // ---- header ----
+    Rectangle {
+        x: 0; y: 0;
+        width: 100%; height: 64px;
+        background: Theme.bg-base;
+
+        Text {
+            x: Theme.rtl ? 372px : Theme.space-5;
+            width: parent.width - 396px;
+            height: 100%;
+            text: Strings.s_settings_title;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-7;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+        Rectangle {
+            x: Theme.rtl ? 96px : parent.width - 96px - 210px - Theme.space-5;
+            y: (parent.height - self.height) / 2;
+            width: 210px; height: Theme.control-height-md;
+            VfmSearchField {
+                width: 100%; height: 100%;
+                text <=> root.search-text;
+                placeholder: Strings.s_settings_search_placeholder;
+            }
+        }
+        Rectangle {
+            x: Theme.rtl ? Theme.space-5 : parent.width - 96px - Theme.space-5;
+            y: (parent.height - self.height) / 2;
+            width: 84px; height: Theme.control-height-md;
+            VfmButton {
+                width: 100%; height: 100%;
+                text: root.close-label;
+                primary: true;
+                clicked => { root.done(); }
+            }
+        }
+        Rectangle {
+            y: parent.height - 1px; width: 100%; height: 1px;
+            background: Theme.border-subtle;
+        }
+    }
+
+    // ---- category rail ----
+    Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: 64px;
+        width: 232px;
+        height: parent.height - 64px;
+        background: Theme.bg-surface;
+        Rectangle {
+            x: Theme.rtl ? 0px : parent.width - 1px;
+            width: 1px; height: 100%;
+            background: Theme.border-subtle;
+        }
+        VerticalLayout {
+            padding: Theme.space-3;
+            spacing: Theme.space-1;
+            for cat in root.categories: Rectangle {
+                height: 34px;
+                border-radius: Theme.radius-md;
+                background: cat.selected
+                    ? Theme.accent-soft
+                    : (cat-touch.has-hover ? Theme.bg-elevated : transparent);
+                HorizontalLayout {
+                    padding-left: Theme.space-3;
+                    padding-right: Theme.space-3;
+                    spacing: Theme.space-2;
+                    Text {
+                        text: cat.label;
+                        color: cat.selected ? Theme.accent : Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    if cat.modified > 0: Rectangle {
+                        width: 18px; height: 18px;
+                        border-radius: Theme.radius-pill;
+                        background: Theme.accent;
+                        y: (parent.height - self.height) / 2;
+                        Text {
+                            text: "\{cat.modified}";
+                            color: Theme.text-on-accent;
+                            font-family: Theme.font;
+                            font-size: Theme.text-1;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            width: 100%; height: 100%;
+                        }
+                    }
+                }
+                cat-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.category-picked(cat.index); }
+                }
+            }
+            Rectangle { height: Theme.space-3; }
+            Rectangle {
+                height: 34px;
+                border-radius: Theme.radius-md;
+                background: keys-touch.has-hover ? Theme.bg-elevated : transparent;
+                HorizontalLayout {
+                    padding-left: Theme.space-3;
+                    spacing: Theme.space-2;
+                    Image {
+                        width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                        source: @image-url("../../../assets/icons/control/settings.svg");
+                        opacity: 0.7;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: root.shortcuts-label;
+                        color: Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        vertical-alignment: center;
+                    }
+                }
+                keys-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { root.hotkeys-open(); }
+                }
+            }
+            Rectangle {
+                height: 34px;
+                border-radius: Theme.radius-md;
+                background: reset-touch.has-hover ? Theme.bg-elevated : transparent;
+                opacity: root.dirty-count > 0 ? 1 : 0.4;
+                HorizontalLayout {
+                    padding-left: Theme.space-3;
+                    spacing: Theme.space-2;
+                    Image {
+                        width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                        source: @image-url("../../../assets/icons/control/restore.svg");
+                        opacity: 0.7;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: root.reset-all-label;
+                        color: Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        vertical-alignment: center;
+                    }
+                }
+                reset-touch := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => { if (root.dirty-count > 0) { root.reset-all(); } }
+                }
+            }
+        }
+    }
+
+    // ---- content ----
+    Rectangle {
+        x: Theme.rtl ? 0px : 232px;
+        y: 64px;
+        width: parent.width - 232px;
+        height: parent.height - 64px;
+
+        VerticalLayout {
+            padding-left: Theme.space-5;
+            padding-right: Theme.space-5;
+            padding-top: Theme.space-3;
+            spacing: Theme.space-2;
+
+            HorizontalLayout {
+                height: Theme.control-height-md;
+                spacing: Theme.space-3;
+                Text {
+                    text: root.heading;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-5;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                if root.dirty-count > 0: Text {
+                    text: "\{root.dirty-count} \{root.modified-label}";
+                    color: Theme.accent;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    width: 132px; height: 100%;
+                    VfmButton {
+                        width: 100%; height: Theme.control-height-sm;
+                        y: (parent.height - self.height) / 2;
+                        text: root.advanced-label;
+                        selected: root.show-advanced;
+                        clicked => { root.advanced-toggled(); }
+                    }
+                }
+            }
+
+            if root.empty: Rectangle {
+                vertical-stretch: 1;
+                Text {
+                    width: 100%; height: 100%;
+                    text: root.no-results-label;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-4;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+            }
+
+            if !root.empty: Flickable {
+                vertical-stretch: 1;
+                content-height: row-layout.preferred-height;
+                content-width: self.width;
+                row-layout := VerticalLayout {
+                    width: parent.width;
+                    spacing: 0px;
+                    for item in root.rows: SettingRowView {
+                        data: item;
+                        pool: root.options;
+                        swatch-colors: root.accents;
+                        browse-label: root.browse-label;
+                        help-open: root.open-help == item.key;
+                        options-open: root.open-options == item.key;
+                        help-toggled(k) => {
+                            root.open-help = root.open-help == k ? "" : k;
+                            root.open-options = "";
+                        }
+                        options-toggled(k) => {
+                            root.open-options = root.open-options == k ? "" : k;
+                            root.open-help = "";
+                        }
+                        toggled(k, v) => { root.setting-bool(k, v); }
+                        chosen(k, idx) => {
+                            root.setting-choice(k, idx);
+                            root.open-options = "";
+                        }
+                        numbered(k, v) => { root.setting-number(k, v); }
+                        committed(k, v) => { root.setting-committed(k, v); }
+                        texted(k, t) => { root.setting-text(k, t); }
+                        browsed(k) => { root.setting-browse(k); }
+                        reset(k) => { root.setting-reset(k); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- hotkeys dialog ----
+    if root.hotkeys-show: Rectangle {
+        width: 100%; height: 100%;
+        background: Theme.bg-overlay;
+        z: 50;
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: min(620px, parent.width - Theme.space-7);
+            height: min(600px, parent.height - Theme.space-7);
+            border-radius: Theme.radius-xl;
+            background: Theme.bg-elevated;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+
+            VerticalLayout {
+                padding: Theme.space-5;
+                spacing: Theme.space-3;
+
+                Text {
+                    text: root.hotkeys-title;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-6;
+                    font-weight: 600;
+                    height: Theme.text-6 * Theme.line-height;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                Text {
+                    text: root.capture-action >= 0 ? root.capture-text : root.hotkeys-hint;
+                    color: root.capture-action >= 0 ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    height: Theme.text-2 * Theme.line-height;
+                    wrap: word-wrap;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                if root.hotkeys-status != "": Text {
+                    text: root.hotkeys-status;
+                    color: root.hotkeys-conflict ? Theme.danger : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    height: Theme.text-2 * Theme.line-height;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+
+                Flickable {
+                    vertical-stretch: 1;
+                    content-height: hk-layout.preferred-height;
+                    content-width: self.width;
+                    hk-layout := VerticalLayout {
+                        width: parent.width;
+                        spacing: 0px;
+                        for hk in root.hotkey-rows: Rectangle {
+                            height: 36px;
+                            background: hk-row-touch.has-hover ? Theme.bg-surface : transparent;
+                            border-radius: Theme.radius-sm;
+                            Text {
+                                x: Theme.rtl ? 130px : Theme.space-2;
+                                width: parent.width - 140px;
+                                height: 100%;
+                                text: hk.label;
+                                color: Theme.text-body;
+                                font-family: Theme.font;
+                                font-size: Theme.text-3;
+                                vertical-alignment: center;
+                                horizontal-alignment: Theme.rtl ? right : left;
+                                overflow: elide;
+                            }
+                            KeyCap {
+                                x: Theme.rtl ? Theme.space-2 : parent.width - self.width - Theme.space-2;
+                                y: (parent.height - self.height) / 2;
+                                text: root.capture-action == hk.action ? "…" : (hk.combo == "" ? "—" : hk.combo);
+                                active: root.capture-action == hk.action;
+                                warn: hk.conflict;
+                            }
+                            hk-row-touch := TouchArea {
+                                width: 100%; height: 100%;
+                                clicked => { root.hotkey-capture(hk.action); }
+                            }
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    height: Theme.control-height-md;
+                    alignment: Theme.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+                    VfmButton {
+                        text: Strings.s_settings_reset_keys;
+                        clicked => { root.hotkey-reset(); }
+                    }
+                    VfmButton {
+                        text: Strings.s_settings_import;
+                        clicked => { root.hotkey-import(); }
+                    }
+                    VfmButton {
+                        text: Strings.s_settings_export;
+                        clicked => { root.hotkey-export(); }
+                    }
+                    VfmButton {
+                        text: Strings.s_settings_close;
+                        primary: true;
+                        clicked => { root.hotkeys-close(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // Capture keys while a row is armed. Escape cancels; anything else becomes the combo.
+    forward-focus: capture-scope;
+    capture-scope := FocusScope {
+        width: 0; height: 0;
+        key-pressed(event) => {
+            if root.capture-action < 0 { return reject; }
+            if event.text == "Escape" {
+                root.capture-action = -1;
+                root.hotkeys-status = "";
+                return accept;
+            }
+            if event.text == "" { return reject; }
+            root.hotkey-captured(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt);
+            return accept;
+        }
+    }
+}

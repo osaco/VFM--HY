@@ -1,0 +1,9 @@
+[package]
+name = "vfm-platform"
+description = "Thin Win32 shell integration that cannot live in the unsafe-free app crate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true

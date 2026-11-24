@@ -1,0 +1,1066 @@
+// Phase 2 design system components. All colors, sizes, radii, and motion come from Theme.
+// Every component exposes default / hover / pressed / focus / disabled (and selected where
+// meaningful) through its binding expressions so the gallery can review each state.
+
+import { Theme } from "theme.slint";
+
+export component VfmTooltip inherits Rectangle {
+    in property <string> text;
+    in property <bool> show: false;
+
+    height: Theme.control-height-sm;
+    border-radius: Theme.radius-sm;
+    background: Theme.bg-elevated;
+    border-width: Theme.border-width;
+    border-color: Theme.border-default;
+    visible: root.show && root.text != "";
+
+    HorizontalLayout {
+        padding-left: Theme.space-2;
+        padding-right: Theme.space-2;
+        Text {
+            text: root.text;
+            color: Theme.text-body;
+            font-family: Theme.font;
+            font-size: Theme.text-1;
+            vertical-alignment: center;
+        }
+    }
+}
+
+export component VfmButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> has-icon: false;
+    in property <image> icon;
+    in property <bool> primary: false;
+    in property <bool> selected: false;
+    in property <bool> disabled: false;
+    in property <bool> force-hover: false;
+    in property <bool> force-pressed: false;
+    in property <bool> force-focus: false;
+    callback clicked();
+
+    height: Theme.control-height-md;
+    border-radius: Theme.radius-md;
+    border-width: root.force-pressed || touch.pressed || root.force-focus || focus.has-focus ? Theme.focus-width : Theme.border-width;
+    border-color: root.force-focus || focus.has-focus ? Theme.focus-ring : (root.primary ? root.background : Theme.border-default);
+    background: root.disabled
+        ? Theme.bg-control
+        : root.primary
+            ? ((root.force-pressed || touch.pressed) ? Theme.accent-pressed : ((root.force-hover || touch.has-hover || root.selected) ? Theme.accent-hover : Theme.accent))
+            : ((root.force-pressed || touch.pressed) ? Theme.bg-control : ((root.force-hover || touch.has-hover || root.selected) ? Theme.accent-soft : Theme.bg-surface));
+    opacity: root.disabled ? 0.45 : 1;
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-2;
+        alignment: LayoutAlignment.center;
+        if root.has-icon: Image {
+            width: Theme.icon-size-sm;
+            height: Theme.icon-size-sm;
+            source: root.icon;
+        }
+        Text {
+            text: root.text;
+            color: root.primary ? Theme.text-on-accent : (root.disabled ? Theme.text-secondary : Theme.text-primary);
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            font-weight: 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Enter") { root.clicked(); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+export component VfmIconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> tooltip-text;
+    in property <bool> active: false;
+    in property <bool> disabled: false;
+    in property <bool> force-hover: false;
+    in property <bool> force-pressed: false;
+    in property <bool> force-focus: false;
+    in property <length> size: Theme.control-height-md;
+    in property <length> glyph-size: Theme.icon-size-md;
+    in property <bool> square: false;
+    callback clicked();
+
+    width: root.size;
+    height: root.size;
+    border-radius: root.square ? 0px : Theme.radius-md;
+    border-width: root.force-focus || focus.has-focus ? Theme.focus-width : 0px;
+    border-color: Theme.focus-ring;
+    background: root.disabled
+        ? Theme.bg-control
+        : ((root.force-pressed || touch.pressed) ? Theme.bg-control : ((root.force-hover || touch.has-hover || root.active) ? Theme.accent-soft : transparent));
+    opacity: root.disabled ? 0.4 : 1;
+
+    Image {
+        width: root.glyph-size;
+        height: root.glyph-size;
+        source: root.icon;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    tip := VfmTooltip {
+        x: (root.width - self.width) / 2;
+        y: root.height + Theme.space-1;
+        z: 10;
+        width: Theme.tooltip-width;
+        text: root.tooltip-text;
+        show: touch.has-hover || root.force-hover || focus.has-focus || root.force-focus;
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Enter") { root.clicked(); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+export component VfmToggle inherits Rectangle {
+    in-out property <bool> checked: false;
+    in property <string> label;
+    in property <bool> disabled: false;
+    callback changed(bool);
+
+    width: 44px;
+    height: Theme.control-height-sm;
+    border-radius: Theme.radius-pill;
+    background: root.disabled
+        ? Theme.bg-control
+        : (root.checked ? (touch.pressed ? Theme.accent-pressed : Theme.accent) : Theme.border-default);
+    border-width: focus.has-focus ? Theme.focus-width : 0px;
+    border-color: Theme.focus-ring;
+    opacity: root.disabled ? 0.45 : 1;
+
+    Rectangle {
+        x: root.checked ? root.width - self.width - Theme.space-1 : Theme.space-1;
+        y: Theme.space-1;
+        width: self.height;
+        height: root.height - Theme.space-2;
+        border-radius: Theme.radius-pill;
+        background: root.checked ? #FFFFFF : Theme.text-primary;
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Enter") {
+                root.checked = !root.checked;
+                root.changed(root.checked);
+                return accept;
+            }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => {
+                root.checked = !root.checked;
+                root.changed(root.checked);
+            }
+        }
+    }
+}
+
+export component VfmSlider inherits Rectangle {
+    in-out property <float> value: 0;
+    in property <float> buffered: 0;
+    in property <bool> disabled: false;
+    callback changed(float);
+    /// Fired once when the pointer is released, so callers can persist a drag as one edit.
+    callback released(float);
+
+    height: Theme.control-height-md;
+    border-radius: Theme.radius-sm;
+
+    Rectangle {
+        y: (parent.height - Theme.track-height) / 2;
+        width: 100%; height: Theme.track-height;
+        border-radius: Theme.radius-pill;
+        background: Theme.border-default;
+    }
+    Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: (parent.height - Theme.track-height) / 2;
+        width: root.buffered * parent.width; height: Theme.track-height;
+        border-radius: Theme.radius-pill;
+        background: Theme.border-subtle;
+    }
+    Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: (parent.height - Theme.track-height) / 2;
+        width: root.value * parent.width; height: Theme.track-height;
+        border-radius: Theme.radius-pill;
+        background: touch.has-hover ? Theme.accent-hover : Theme.accent;
+    }
+    knob := Rectangle {
+        x: (Theme.rtl ? parent.width - root.value * parent.width : root.value * parent.width) - self.width / 2;
+        y: (parent.height - self.height) / 2;
+        width: touch.has-hover || focus.has-focus ? Theme.space-4 : Theme.space-3;
+        height: self.width;
+        border-radius: Theme.radius-pill;
+        background: touch.pressed ? Theme.accent-pressed : Theme.accent;
+        border-width: focus.has-focus ? Theme.focus-width : 0px;
+        border-color: Theme.focus-ring;
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == "ArrowLeft" || event.text == "ArrowDown") {
+                root.value = max(0, root.value - 0.05); root.changed(root.value); return accept;
+            }
+            if (event.text == "ArrowRight" || event.text == "ArrowUp") {
+                root.value = min(1, root.value + 0.05); root.changed(root.value); return accept;
+            }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => {
+                let p = self.mouse-x / max(self.width, 1px);
+                root.value = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                root.changed(root.value);
+            }
+            moved => {
+                if self.pressed {
+                    let p = self.mouse-x / max(self.width, 1px);
+                    root.value = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                    root.changed(root.value);
+                }
+            }
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.up {
+                    root.released(root.value);
+                }
+            }
+        }
+    }
+}
+
+// Thick player seek bar, measured from design/Player.png:
+// 28px pill track (#090909), 24px played pill (accent-soft) inset 2px, 8x24 accent thumb.
+export component VfmSeekBar inherits Rectangle {
+    in-out property <float> position: 0;
+    in property <float> buffered: 0;
+    in property <string> tooltip-text;
+    in property <bool> compact: false;
+    in property <length> area-height: Theme.seek-height;
+    // Bookmark positions in 0..1, drawn as ticks over the track.
+    in property <[float]> markers;
+    // Downsampled audio envelope, one entry per bar (0..1).
+    in property <[float]> waveform-peaks;
+    in property <bool> waveform-visible: false;
+    callback seek-changed(float);
+    callback hovered(float);
+
+    height: root.area-height;
+
+    Rectangle {
+        y: (parent.height - Theme.seek-height) / 2;
+        width: 100%; height: Theme.seek-height;
+        border-radius: Theme.radius-pill;
+        background: Theme.bg-control;
+    }
+    // The waveform sits between the empty track and the played fill, so the accent
+    // fill reads as "played audio" without needing a second colour ramp.
+    // Drawn as one bar per bucket: a single Path would keep the viewbox aspect ratio and
+    // shrink to the middle of the bar instead of stretching across it.
+    if root.waveform-visible && root.waveform-peaks.length > 0: Rectangle {
+        y: (parent.height - Theme.seek-fill-height) / 2;
+        width: 100%; height: Theme.seek-fill-height;
+        clip: true;
+        for peak[i] in root.waveform-peaks: Rectangle {
+            x: (Theme.rtl
+                ? parent.width - (i + 1) * (parent.width / root.waveform-peaks.length)
+                : i * (parent.width / root.waveform-peaks.length));
+            width: max(1px, (parent.width / root.waveform-peaks.length) * 0.62);
+            height: max(2px, peak * parent.height * 0.88);
+            y: (parent.height - self.height) / 2;
+            background: Theme.text-secondary.with-alpha(0.5);
+        }
+    }
+    if root.buffered > root.position + 0.001: Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: (parent.height - Theme.seek-fill-height) / 2;
+        width: root.buffered * parent.width; height: Theme.seek-fill-height;
+        border-radius: Theme.radius-pill;
+        background: Theme.border-subtle;
+    }
+    Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        y: (parent.height - Theme.seek-fill-height) / 2;
+        width: max(Theme.seek-fill-height, root.position * parent.width);
+        height: Theme.seek-fill-height;
+        border-radius: Theme.radius-pill;
+        background: touch.has-hover ? Theme.accent.mix(Theme.bg-control, 0.34) : Theme.accent-soft;
+    }
+    for m in root.markers: Rectangle {
+        x: clamp((Theme.rtl ? 1 - m : m) * parent.width, 0px, parent.width - 3px);
+        y: (parent.height - 12px) / 2;
+        width: 3px; height: 12px;
+        border-radius: 1.5px;
+        background: Theme.text-primary.with-alpha(0.8);
+    }
+    Rectangle {
+        x: clamp(Theme.rtl ? parent.width - root.position * parent.width : root.position * parent.width,
+                 Theme.seek-thumb-width / 2,
+                 parent.width - Theme.seek-thumb-width / 2) - self.width / 2;
+        y: (parent.height - Theme.seek-fill-height) / 2;
+        width: touch.has-hover || touch.pressed ? Theme.seek-thumb-width + 3px : Theme.seek-thumb-width;
+        height: Theme.seek-fill-height;
+        border-radius: Theme.radius-sm;
+        background: touch.has-hover || touch.pressed ? Theme.accent-hover : Theme.accent;
+    }
+    tip := VfmTooltip {
+        x: clamp(touch.mouse-x - self.width / 2, 0px, root.width - self.width);
+        y: 0px;
+        width: Theme.tooltip-width;
+        z: 10;
+        text: root.tooltip-text;
+        show: touch.has-hover;
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        key-pressed(event) => {
+            if (event.text == "ArrowLeft") {
+                root.position = max(0, root.position - 0.02); root.seek-changed(root.position); return accept;
+            }
+            if (event.text == "ArrowRight") {
+                root.position = min(1, root.position + 0.02); root.seek-changed(root.position); return accept;
+            }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            clicked => {
+                let p = self.mouse-x / max(self.width, 1px);
+                root.position = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                root.seek-changed(root.position);
+            }
+            moved => {
+                let p = self.mouse-x / max(self.width, 1px);
+                if self.pressed {
+                    root.position = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                    root.seek-changed(root.position);
+                } else {
+                    root.hovered(clamp(Theme.rtl ? 1 - p : p, 0, 1));
+                }
+            }
+        }
+    }
+}
+
+// Tapered volume slider, measured from design/Player.png: a wedge growing from ~9px at the
+// left edge to 28px at the right edge over 90px, filled in volume green.
+export component VfmVolumeCone inherits Rectangle {
+    in-out property <float> value: 1;
+    in property <bool> muted: false;
+    in property <bool> disabled: false;
+    in property <length> cone-width: Theme.volume-cone-width;
+    callback changed(float);
+
+    width: root.cone-width;
+    height: Theme.seek-height;
+    opacity: root.disabled ? 0.45 : 1;
+
+    Path {
+        width: 100%; height: 100%;
+        stroke-width: 0px;
+        commands: Theme.rtl
+            ? "M 90 9 L 0 0 L 0 28 L 90 19 Z"
+            : "M 0 9 L 90 0 L 90 28 L 0 19 Z";
+        fill: Theme.bg-control;
+    }
+    fill-clip := Rectangle {
+        x: Theme.rtl ? root.width - self.width : 0px;
+        width: clamp(root.value, 0, 1) * root.width;
+        height: 100%;
+        clip: true;
+        Path {
+            x: Theme.rtl ? fill-clip.width - root.cone-width : 0px;
+            width: root.cone-width;
+            height: 100%;
+            stroke-width: 0px;
+            commands: Theme.rtl
+                ? "M 90 9 L 0 0 L 0 28 L 90 19 Z"
+                : "M 0 9 L 90 0 L 90 28 L 0 19 Z";
+            fill: root.muted ? Theme.text-secondary : Theme.volume-fill;
+        }
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == "ArrowLeft" || event.text == "ArrowDown") {
+                root.value = max(0, root.value - 0.1); root.changed(root.value); return accept;
+            }
+            if (event.text == "ArrowRight" || event.text == "ArrowUp") {
+                root.value = min(1, root.value + 0.1); root.changed(root.value); return accept;
+            }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => {
+                let p = self.mouse-x / max(self.width, 1px);
+                root.value = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                root.changed(root.value);
+            }
+            moved => {
+                if self.pressed {
+                    let p = self.mouse-x / max(self.width, 1px);
+                    root.value = clamp(Theme.rtl ? 1 - p : p, 0, 1);
+                    root.changed(root.value);
+                }
+            }
+        }
+    }
+}
+
+export component VfmDropdown inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> current-index: 0;
+    in-out property <bool> open: false;
+    callback selected(int);
+
+    height: Theme.control-height-md;
+    border-radius: Theme.radius-md;
+    border-width: focus.has-focus ? Theme.focus-width : Theme.border-width;
+    border-color: focus.has-focus ? Theme.focus-ring : Theme.border-default;
+    background: touch.has-hover ? Theme.bg-elevated : Theme.bg-surface;
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-2;
+        Text {
+            text: root.current-index >= 0 && root.current-index < root.options.length ? root.options[root.current-index] : "";
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        Text { text: "⌄"; color: Theme.text-secondary; font-size: Theme.text-4; vertical-alignment: center; }
+    }
+
+    if root.open: Rectangle {
+        y: root.height + Theme.space-1;
+        width: Theme.menu-width;
+        height: Theme.menu-row-height * root.options.length + Theme.space-2;
+        z: 20;
+        border-radius: Theme.radius-lg;
+        border-width: Theme.border-width;
+        border-color: Theme.border-default;
+        background: Theme.bg-elevated;
+        VerticalLayout {
+            padding: Theme.space-1;
+            spacing: 0px;
+            for option[i] in root.options: Rectangle {
+                height: Theme.menu-row-height;
+                border-radius: Theme.radius-md;
+                background: i == root.current-index ? Theme.accent-soft : (row.has-hover ? Theme.bg-surface : transparent);
+                HorizontalLayout {
+                    padding-left: Theme.space-3;
+                    Text {
+                        text: option;
+                        color: i == root.current-index ? Theme.accent : Theme.text-body;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        vertical-alignment: center;
+                    }
+                }
+                row := TouchArea {
+                    width: 100%; height: 100%;
+                    clicked => {
+                        root.current-index = i;
+                        root.selected(i);
+                        root.open = false;
+                    }
+                }
+            }
+        }
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Enter") { root.open = !root.open; return accept; }
+            if (event.text == "Escape") { root.open = false; return accept; }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            clicked => { root.open = !root.open; }
+        }
+    }
+}
+
+export component VfmTabs inherits Rectangle {
+    in property <[string]> model;
+    in-out property <int> current-index: 0;
+    callback tab-clicked(int);
+
+    height: Theme.control-height-lg;
+
+    HorizontalLayout {
+        spacing: Theme.space-1;
+        for tab[i] in root.model: Rectangle {
+            min-width: Theme.tab-min-width;
+            horizontal-stretch: 1;
+            border-radius: Theme.radius-md;
+            background: touch.pressed ? Theme.bg-control : (i == root.current-index ? Theme.accent-soft : (touch.has-hover ? Theme.bg-surface : transparent));
+            VerticalLayout {
+                padding-left: Theme.space-2;
+                padding-right: Theme.space-2;
+                HorizontalLayout {
+                    Text {
+                        text: tab;
+                        color: i == root.current-index ? Theme.accent : Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-3;
+                        font-weight: i == root.current-index ? 600 : 400;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                }
+                Rectangle {
+                    height: Theme.focus-width;
+                    width: 100%;
+                    background: i == root.current-index ? Theme.accent : transparent;
+                }
+            }
+            touch := TouchArea {
+                width: 100%; height: 100%;
+                clicked => { root.current-index = i; root.tab-clicked(i); }
+            }
+        }
+    }
+}
+
+export component VfmListRow inherits Rectangle {
+    in property <image> icon;
+    in property <bool> has-icon: false;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <string> trailing-text;
+    in property <bool> selected: false;
+    in property <bool> disabled: false;
+    in property <bool> force-hover: false;
+    in property <bool> force-pressed: false;
+    in property <bool> force-focus: false;
+    callback clicked();
+
+    height: Theme.control-height-lg;
+    border-radius: Theme.radius-md;
+    background: root.disabled
+        ? Theme.bg-control
+        : ((root.force-pressed || touch.pressed) ? Theme.bg-control : (root.selected ? Theme.accent-soft : ((root.force-hover || touch.has-hover || root.force-focus || focus.has-focus) ? Theme.bg-surface : transparent)));
+    opacity: root.disabled ? 0.45 : 1;
+
+    if root.selected: Rectangle {
+        x: Theme.rtl ? parent.width - self.width : 0px;
+        width: Theme.focus-width; height: 100%;
+        background: Theme.accent;
+    }
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-3;
+        if root.has-icon: Image { width: Theme.icon-size-md; height: Theme.icon-size-md; source: root.icon; }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: Theme.space-1;
+            Text {
+                text: root.title;
+                color: root.disabled ? Theme.text-secondary : Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-3;
+                overflow: elide;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+            if root.subtitle != "": Text {
+                text: root.subtitle;
+                color: Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-1;
+                overflow: elide;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+        }
+        if root.trailing-text != "": Text {
+            text: root.trailing-text;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-2;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle {
+        x: 0; y: 0; width: 100%; height: 100%;
+        border-width: root.force-focus || focus.has-focus ? Theme.focus-width : 0px;
+        border-color: Theme.focus-ring;
+        border-radius: Theme.radius-md;
+        visible: root.force-focus || focus.has-focus;
+    }
+
+    focus := FocusScope {
+        width: 100%; height: 100%;
+        enabled: !root.disabled;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "Enter") { root.clicked(); return accept; }
+            reject
+        }
+        touch := TouchArea {
+            width: 100%; height: 100%;
+            enabled: !root.disabled;
+            clicked => { root.clicked(); }
+        }
+    }
+}
+
+export component VfmCard inherits Rectangle {
+    in property <image> thumbnail;
+    in property <bool> has-thumbnail: false;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <float> progress: 0;
+    in property <bool> selected: false;
+    callback clicked();
+
+    width: Theme.thumbnail-width + Theme.space-5;
+    height: Theme.thumbnail-height + Theme.space-7;
+    border-radius: Theme.radius-lg;
+    border-width: root.selected ? Theme.focus-width : Theme.border-width;
+    border-color: root.selected ? Theme.accent : (touch.has-hover ? Theme.border-default : Theme.border-subtle);
+    background: touch.pressed ? Theme.bg-control : (touch.has-hover ? Theme.bg-elevated : Theme.bg-surface);
+
+    VerticalLayout {
+        padding: Theme.space-2;
+        spacing: Theme.space-2;
+        Rectangle {
+            width: 100%; height: Theme.thumbnail-height;
+            border-radius: Theme.radius-md;
+            background: Theme.bg-video;
+            clip: true;
+            if root.has-thumbnail: Image {
+                width: 100%; height: 100%;
+                source: root.thumbnail;
+                image-fit: ImageFit.cover;
+            }
+            Rectangle {
+                y: parent.height - Theme.focus-width;
+                width: root.progress * parent.width;
+                height: Theme.focus-width;
+                background: Theme.accent;
+            }
+        }
+        Text {
+            text: root.title;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            overflow: elide;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+        Text {
+            text: root.subtitle;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-1;
+            overflow: elide;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+    }
+
+    touch := TouchArea {
+        width: 100%; height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component VfmGridItem inherits Rectangle {
+    in property <image> thumbnail;
+    in property <string> title;
+    in property <float> progress: 0;
+    in property <bool> selected: false;
+    callback clicked();
+
+    width: Theme.thumbnail-width;
+    height: Theme.thumbnail-height + Theme.space-6;
+    border-radius: Theme.radius-md;
+    background: root.selected ? Theme.accent-soft : (touch.has-hover ? Theme.bg-elevated : Theme.bg-surface);
+    border-width: root.selected ? Theme.focus-width : Theme.border-width;
+    border-color: root.selected ? Theme.accent : Theme.border-subtle;
+
+    VerticalLayout {
+        padding: Theme.space-1;
+        spacing: Theme.space-1;
+        Rectangle {
+            width: 100%; height: Theme.thumbnail-height - Theme.space-4;
+            border-radius: Theme.radius-sm;
+            background: Theme.bg-video;
+            clip: true;
+            Rectangle {
+                y: parent.height - Theme.focus-width;
+                width: root.progress * parent.width;
+                height: Theme.focus-width;
+                background: Theme.accent;
+            }
+        }
+        Text {
+            text: root.title;
+            color: Theme.text-primary;
+            font-family: Theme.font;
+            font-size: Theme.text-2;
+            overflow: elide;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+    }
+
+    touch := TouchArea {
+        width: 100%; height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component VfmContextMenu inherits Rectangle {
+    in property <[string]> items;
+    in property <[string]> shortcuts;
+    in property <[image]> icons;
+    in property <bool> show: false;
+    in property <int> item-count;
+    callback item-clicked(int);
+
+    width: Theme.menu-width;
+    height: root.item-count * Theme.menu-row-height + Theme.space-2;
+    border-radius: Theme.radius-lg;
+    border-width: Theme.border-width;
+    border-color: Theme.border-default;
+    background: Theme.bg-elevated;
+    visible: root.show;
+    z: 30;
+
+    VerticalLayout {
+        padding: Theme.space-1;
+        spacing: 0px;
+        for item[i] in root.items: Rectangle {
+            height: Theme.menu-row-height;
+            border-radius: Theme.radius-md;
+            background: (i + 1 < root.item-count && Math.mod(i + 1, 4) == 0) ? transparent
+                : (row.has-hover ? Theme.accent-soft : transparent);
+            HorizontalLayout {
+                padding-left: Theme.space-3;
+                padding-right: Theme.space-3;
+                spacing: Theme.space-2;
+                if i < root.icons.length: Image {
+                    width: Theme.icon-size-sm;
+                    height: Theme.icon-size-sm;
+                    source: root.icons[i];
+                }
+                Text {
+                    text: item;
+                    color: row.has-hover ? Theme.accent : Theme.text-body;
+                    font-family: Theme.font;
+                    font-size: Theme.text-3;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: i < root.shortcuts.length ? root.shortcuts[i] : "";
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    vertical-alignment: center;
+                }
+            }
+            if i + 1 < root.item-count && Math.mod(i + 1, 4) == 0: Rectangle {
+                x: Theme.space-2;
+                y: parent.height - Theme.border-width;
+                width: parent.width - Theme.space-4;
+                height: Theme.border-width;
+                background: Theme.border-subtle;
+            }
+            row := TouchArea {
+                width: 100%; height: 100%;
+                clicked => { root.item-clicked(i); }
+            }
+        }
+    }
+}
+
+export component VfmDialog inherits Rectangle {
+    in property <string> title;
+    in property <string> body;
+    in property <string> primary-text;
+    in property <string> secondary-text;
+    in property <bool> show: false;
+    callback primary();
+    callback secondary();
+
+    width: 100%; height: 100%;
+    background: Theme.bg-overlay;
+    visible: root.show;
+    z: 40;
+
+    Rectangle {
+        width: min(Theme.dialog-width, parent.width - Theme.space-7);
+        height: Theme.thumbnail-height + Theme.space-6;
+        border-radius: Theme.radius-xl;
+        background: Theme.bg-elevated;
+        border-width: Theme.border-width;
+        border-color: Theme.border-default;
+        VerticalLayout {
+            padding: Theme.space-5;
+            spacing: Theme.space-3;
+            Text {
+                text: root.title;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-6;
+                font-weight: 600;
+            }
+            Text {
+                text: root.body;
+                color: Theme.text-body;
+                font-family: Theme.font;
+                font-size: Theme.text-3;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+            }
+            HorizontalLayout {
+                spacing: Theme.space-2;
+                alignment: Theme.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+                VfmButton { text: root.secondary-text; clicked => { root.secondary(); } }
+                VfmButton { text: root.primary-text; primary: true; clicked => { root.primary(); } }
+            }
+        }
+    }
+}
+
+export component VfmSidebarPanel inherits Rectangle {
+    in property <[string]> items;
+    in property <string> header;
+    in property <int> item-count;
+    in-out property <int> current-index: 0;
+    callback item-clicked(int);
+
+    width: Theme.menu-width;
+    height: root.item-count * Theme.menu-row-height + Theme.control-height-lg + Theme.space-4;
+    border-radius: Theme.radius-lg;
+    background: Theme.bg-surface;
+    border-width: Theme.border-width;
+    border-color: Theme.border-subtle;
+
+    VerticalLayout {
+        padding: Theme.space-2;
+        spacing: Theme.space-1;
+        Text {
+            height: Theme.control-height-md;
+            text: root.header;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-2;
+            vertical-alignment: center;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+        for item[i] in root.items: Rectangle {
+            height: Theme.menu-row-height;
+            border-radius: Theme.radius-md;
+            background: i == root.current-index ? Theme.accent-soft : (row.has-hover ? Theme.bg-elevated : transparent);
+            HorizontalLayout {
+                padding-left: Theme.space-3;
+                padding-right: Theme.space-3;
+                Text {
+                    text: item;
+                    color: i == root.current-index ? Theme.accent : Theme.text-body;
+                    font-family: Theme.font;
+                    font-size: Theme.text-3;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+            }
+            row := TouchArea {
+                width: 100%; height: 100%;
+                clicked => { root.current-index = i; root.item-clicked(i); }
+            }
+        }
+    }
+}
+
+export component VfmScrollBar inherits Rectangle {
+    in-out property <float> value: 0;
+    in property <float> page-size: 0.25;
+    callback scrolled(float);
+
+    width: Theme.scrollbar-width;
+
+    Rectangle {
+        width: 100%; height: 100%;
+        border-radius: Theme.radius-pill;
+        background: Theme.bg-control;
+    }
+    thumb := Rectangle {
+        x: (Theme.rtl ? 0px : 0px);
+        y: root.value * (root.height - self.height);
+        width: 100%;
+        height: max(Theme.control-height-sm, root.height * root.page-size);
+        border-radius: Theme.radius-pill;
+        background: touch.pressed ? Theme.accent-pressed : (touch.has-hover ? Theme.accent-hover : Theme.border-default);
+    }
+    touch := TouchArea {
+        width: 100%; height: 100%;
+        clicked => {
+            let usable = max(root.height - thumb.height, 1px);
+            root.value = clamp((self.mouse-y - thumb.height / 2) / usable, 0, 1);
+            root.scrolled(root.value);
+        }
+        moved => {
+            if self.pressed {
+                let usable = max(root.height - thumb.height, 1px);
+                root.value = clamp((self.mouse-y - thumb.height / 2) / usable, 0, 1);
+                root.scrolled(root.value);
+            }
+        }
+    }
+}
+
+export component VfmSearchField inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    height: Theme.control-height-md;
+    border-radius: Theme.radius-md;
+    border-width: input.has-focus ? Theme.focus-width : Theme.border-width;
+    border-color: input.has-focus ? Theme.focus-ring : Theme.border-default;
+    background: touch.has-hover ? Theme.bg-elevated : Theme.bg-surface;
+    touch := TouchArea { width: 100%; height: 100%; }
+
+    HorizontalLayout {
+        padding-left: Theme.space-3;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-2;
+        Image { width: Theme.icon-size-sm; height: Theme.icon-size-sm; source: @image-url("../../../assets/icons/control/search.svg"); }
+        Rectangle {
+            horizontal-stretch: 1;
+            input := TextInput {
+                width: 100%; height: 100%;
+                text <=> root.text;
+                color: Theme.text-primary;
+                font-family: Theme.font;
+                font-size: Theme.text-3;
+                vertical-alignment: center;
+            }
+            if root.text == "": Text {
+                x: 0; y: 0; width: 100%; height: 100%;
+                text: root.placeholder;
+                color: Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-3;
+                vertical-alignment: center;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+        }
+        if root.text != "": Rectangle {
+            width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+            Text { text: "×"; color: Theme.text-secondary; font-size: Theme.text-4; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { width: 100%; height: 100%; clicked => { root.text = ""; } }
+        }
+    }
+}
+
+export component VfmBreadcrumb inherits Rectangle {
+    in property <[string]> parts;
+    in-out property <int> current-index: 0;
+    callback crumb-clicked(int);
+
+    height: Theme.control-height-md;
+
+    HorizontalLayout {
+        spacing: Theme.space-1;
+        alignment: Theme.rtl ? LayoutAlignment.end : LayoutAlignment.start;
+        for part[i] in root.parts: Rectangle {
+            height: Theme.control-height-sm;
+            border-radius: Theme.radius-sm;
+            background: i == root.current-index ? Theme.accent-soft : (crumb.has-hover ? Theme.bg-surface : transparent);
+            HorizontalLayout {
+                padding-left: Theme.space-2;
+                padding-right: Theme.space-2;
+                Text {
+                    text: part;
+                    color: i == root.current-index ? Theme.accent : Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    vertical-alignment: center;
+                }
+            }
+            crumb := TouchArea { width: 100%; height: 100%; clicked => { root.current-index = i; root.crumb-clicked(i); } }
+        }
+    }
+}
+
+export component VfmToast inherits Rectangle {
+    in property <string> message;
+    in property <string> action-text;
+    in property <bool> show: false;
+    callback action();
+
+    height: Theme.control-height-lg;
+    border-radius: Theme.radius-md;
+    background: Theme.bg-elevated;
+    border-width: Theme.border-width;
+    border-color: Theme.border-default;
+    visible: root.show;
+    z: 35;
+
+    HorizontalLayout {
+        padding-left: Theme.space-4;
+        padding-right: Theme.space-3;
+        spacing: Theme.space-3;
+        Text {
+            text: root.message;
+            color: Theme.text-body;
+            font-family: Theme.font;
+            font-size: Theme.text-3;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+        if root.action-text != "": VfmButton { text: root.action-text; clicked => { root.action(); } }
+    }
+}

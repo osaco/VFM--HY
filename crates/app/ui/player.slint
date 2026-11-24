@@ -1,0 +1,1143 @@
+// Phase 3 player view. Figma reference: design/Player.png (1920x1080, 4x export).
+// Geometry is measured from that export: 40px title bar, 54px control strip,
+// 28px seek track with a 24px played pill and an 8px thumb, 54x28 play button,
+// 42px icon hit targets, 90x28 tapered volume cone.
+// Chrome is token-styled, auto-hiding, RTL-mirrored, and composited over the decoded video.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import {
+    VfmButton, VfmIconButton, VfmSeekBar, VfmVolumeCone, VfmContextMenu, VfmTooltip,
+} from "components.slint";
+import { QueuePanel, QueueRow } from "library.slint";
+import { MetadataRow, PresetRow, RightSidebar, SidebarState, TimelineRow } from "sidebar.slint";
+
+/// One OpenSubtitles search result.
+export struct SubtitleHitRow {
+    title: string,
+    meta: string,
+}
+
+export component PlayerWindow inherits Window {
+    width: 1280px;
+    height: 720px;
+    no-frame: true;
+    title: Strings.s_app_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+    // Without this the FocusScope below never receives focus, so `key-pressed` never fires and
+    // *every* shortcut (space, arrows, f, m …) is dead while the UI still looks complete.
+    forward-focus: keys;
+
+    in-out property <image> video-frame;
+    // Source width / height, 0 when the media has not been probed yet.
+    in-out property <float> video-aspect: 0.0;
+    in-out property <string> filename;
+    in-out property <string> resolution;
+    in-out property <string> telemetry;
+    in-out property <string> elapsed: "0:00";
+    in-out property <string> duration: "0:00";
+    in-out property <int> duration-ms: 0;
+    in-out property <float> seek-position: 0;
+    in-out property <int> volume-level: 100;
+    in-out property <bool> playing: false;
+    in-out property <bool> muted: false;
+    in-out property <bool> drag-hover;
+    in-out property <bool> chrome-visible: true;
+    in-out property <bool> chrome-hidden: false;
+    in-out property <bool> context-menu-show: false;
+    in-out property <string> seek-tooltip;
+    in-out property <image> seek-thumbnail;
+    in-out property <bool> seek-thumbnail-show: false;
+    // Phase 7: bookmark ticks and the audio waveform behind the seek bar.
+    in-out property <[float]> seek-markers;
+    in-out property <[float]> waveform-peaks;
+    in-out property <bool> waveform-visible: false;
+    in-out property <string> osd-key;
+    in-out property <string> osd-action;
+    in-out property <bool> osd-show: false;
+    in-out property <length> context-x: 0px;
+    in-out property <length> context-y: 0px;
+
+    // Phase 5 subtitle renderer state (driven from core::SubtitleSession).
+    in-out property <string> subtitle-text;
+    in-out property <length> subtitle-font-size: 28px;
+    // Settings-driven input behaviour (Phase 8).
+    in-out property <bool> osd-enabled: true;
+    in-out property <bool> click-pause: true;
+    in-out property <int> double-click-action: 0; // 0 fullscreen, 1 play
+    in-out property <int> wheel-action: 0;        // 0 volume, 1 seek
+    in-out property <color> subtitle-color: #FFFFFF;
+    in-out property <color> subtitle-outline-color: #000000;
+    in-out property <float> subtitle-position: 0.1; // 0 bottom .. 1 top
+    in-out property <[string]> audio-track-names;
+    in-out property <[string]> subtitle-track-names;
+    in-out property <int> audio-track-current: -1;
+    in-out property <int> subtitle-track-current: -1;
+    in-out property <bool> audio-popover-show: false;
+    in-out property <bool> subtitle-popover-show: false;
+
+    // Phase 4 queue panel state, populated from Rust.
+    in-out property <[QueueRow]> queue-rows;
+    in-out property <bool> queue-show: false;
+    in-out property <int> queue-current: -1;
+
+    // Phase 6 right sidebar, driven by one serialisable state snapshot.
+    in-out property <SidebarState> sidebar-state;
+    in-out property <[PresetRow]> preset-rows;
+    in-out property <[string]> eq-options;
+    in-out property <[string]> audio-device-options;
+    in-out property <[string]> aspect-options;
+    // Phase 7 timeline: chapter list, bookmark list and metadata panel.
+    in-out property <[TimelineRow]> chapter-rows;
+    in-out property <[TimelineRow]> bookmark-rows;
+    in-out property <[MetadataRow]> metadata-rows;
+    in-out property <int> bookmark-index: -1;
+    // Phase 7 continue-watching prompt, shown when a file has saved progress.
+    in-out property <bool> continue-show: false;
+    in-out property <string> continue-label;
+
+    // Phase 7 music mode: audio-only files get a cover card instead of an empty surface.
+    in-out property <bool> music-mode: false;
+    in-out property <string> music-title;
+    in-out property <string> music-subtitle;
+
+    // Phase 7 OpenSubtitles search dialog.
+    in-out property <bool> subs-dialog-show: false;
+    in-out property <string> subs-query;
+    in-out property <string> subs-key;
+    in-out property <bool> subs-key-needed: true;
+    in-out property <string> subs-status;
+    in-out property <[SubtitleHitRow]> subs-rows;
+    in-out property <bool> subs-busy: false;
+
+    property <bool> chrome-pinned: false;
+
+    // Control-strip metrics measured from design/Player.png.
+    property <length> bar-inset: 16px;
+    property <length> icon-slot: Theme.player-icon-button;
+    property <length> time-width: 58px;
+    property <length> play-x: 60px;
+    property <length> next-x: 116px;
+    property <length> elapsed-x: 180px;
+    property <length> seek-x: 254px;
+    // Right-hand cluster anchors, derived from the Figma strip: the queue button hugs the
+    // inset, the gear sits 50px in from it, then subtitles/audio step back on a 42px pitch,
+    // followed by the volume cone and the speaker.
+    // Which tail buttons the current layout profile keeps (Phase 10). Hidden buttons give
+    // their slot back so the remaining ones stay on the design's 42 px pitch.
+    in-out property <bool> bar-queue: true;
+    in-out property <bool> bar-settings: true;
+    in-out property <bool> bar-subtitles: true;
+    in-out property <bool> bar-audio: true;
+    property <length> tail-list-x: root.width - root.bar-inset - root.icon-slot;
+    property <length> tail-gear-x: root.tail-list-x - (root.bar-queue ? 50px : 0px);
+    property <length> tail-subtitle-x: root.tail-gear-x - (root.bar-settings ? root.icon-slot : 0px);
+    property <length> tail-audio-x: root.tail-subtitle-x - (root.bar-subtitles ? root.icon-slot : 0px);
+    property <length> cone-x: root.tail-audio-x - 10px - Theme.volume-cone-width;
+    property <length> speaker-x: root.cone-x - Theme.space-2 - root.icon-slot;
+    property <length> duration-x: root.speaker-x - 20px - root.time-width;
+    property <length> seek-w: root.duration-x - 15px - root.seek-x;
+
+    // Mirror a left-anchored slot when the UI is right-to-left.
+    function mx(x: length, w: length) -> length {
+        return Theme.rtl ? root.width - x - w : x;
+    }
+
+    property <[string]> context-items: [
+        Strings.s_action_play, Strings.s_action_stop, Strings.s_action_previous_item,
+        Strings.s_action_next_item, Strings.s_action_record, Strings.s_menu_hide_ui,
+        Strings.s_settings_playback, Strings.s_action_video, Strings.s_action_audio,
+        Strings.s_action_subtitles, Strings.s_action_more_settings, Strings.s_action_playlist,
+        Strings.s_action_open_media, Strings.s_customize_title, Strings.s_menu_quit,
+    ];
+    property <[string]> context-shortcuts: [
+        Strings.s_shortcut_play, Strings.s_shortcut_stop, Strings.s_shortcut_previous,
+        Strings.s_shortcut_next, Strings.s_shortcut_record, Strings.s_shortcut_hide_ui,
+        "", "", "", "", "", "", "", "", Strings.s_shortcut_quit,
+    ];
+    property <[image]> context-icons: [
+        @image-url("../../../assets/icons/menu/play.svg"),
+        @image-url("../../../assets/icons/menu/stop.svg"),
+        @image-url("../../../assets/icons/menu/previous.svg"),
+        @image-url("../../../assets/icons/menu/next.svg"),
+        @image-url("../../../assets/icons/menu/record.svg"),
+        @image-url("../../../assets/icons/menu/hide-ui.svg"),
+        @image-url("../../../assets/icons/menu/playback.svg"),
+        @image-url("../../../assets/icons/menu/video.svg"),
+        @image-url("../../../assets/icons/menu/audio.svg"),
+        @image-url("../../../assets/icons/menu/subtitles.svg"),
+        @image-url("../../../assets/icons/menu/settings.svg"),
+        @image-url("../../../assets/icons/menu/playlists.svg"),
+        @image-url("../../../assets/icons/menu/browse.svg"),
+        @image-url("../../../assets/icons/menu/settings.svg"),
+        @image-url("../../../assets/icons/menu/close.svg"),
+    ];
+
+    callback toggle-play();
+    callback stop-playback();
+    callback toggle-rtl();
+    callback seek-changed(float);
+    callback seek-hover(float);
+    callback volume-changed(int);
+    callback toggle-fullscreen();
+    callback toggle-pip();
+    callback next();
+    callback previous();
+    callback record();
+    callback toggle-mute();
+    callback toggle-queue();
+    callback open-library();
+    callback open-media-dialog();
+    callback queue-play-at(int);
+    callback queue-remove-at(int);
+    callback queue-move(int, int);
+    callback queue-clear();
+    callback select-audio-track(int);
+    callback select-subtitle-track(int);
+    callback load-subtitles();
+    callback sidebar-setting-changed(string, float);
+    callback sidebar-toggle-changed(string, bool);
+    callback sidebar-option-changed(string, int);
+    callback preset-action(string, int);
+    callback timeline-action(string, int);
+    callback bookmark-add();
+    /// -1 jumps to the previous bookmark, 1 to the next.
+    callback bookmark-jump(int);
+    callback continue-resume();
+    callback continue-restart();
+    /// "search" | "download" | "close" | "save-key"
+    callback subs-action(string, int);
+    callback toggle-settings();
+    callback customize();
+    callback toggle-sidebar();
+    // Returns true when the combo matched a bound action.
+    callback hotkey(string, bool, bool, bool) -> bool;
+    // Ask the shell to flash an on-screen message (used by the hotkey dispatcher).
+    callback osd(string, string);
+    callback show-audio();
+    callback show-subtitles();
+    callback show-video();
+    callback hide-ui();
+    callback quit();
+    callback minimize();
+    callback toggle-maximize();
+    callback volume-wheeled(float);
+    pure callback accepts-drop(data-transfer) -> bool;
+    callback files-dropped(data-transfer);
+
+    function reveal-chrome() {
+        root.chrome-visible = true;
+        hide-timer.running = true;
+    }
+    function pin-chrome() {
+        root.chrome-pinned = true;
+        root.chrome-visible = true;
+        hide-timer.running = false;
+    }
+    function unpin-chrome() {
+        root.chrome-pinned = false;
+        hide-timer.running = true;
+    }
+    function show-osd(key: string, action: string) {
+        if !root.osd-enabled { return; }
+        root.osd-key = key;
+        root.osd-action = action;
+        root.osd-show = true;
+        osd-timer.running = true;
+    }
+    function handle-context-action(index: int) {
+        root.context-menu-show = false;
+        root.unpin-chrome();
+        if index == 0 { root.toggle-play(); return; }
+        if index == 1 { root.stop-playback(); return; }
+        if index == 2 { root.previous(); return; }
+        if index == 3 { root.next(); return; }
+        if index == 4 { root.record(); return; }
+        if index == 5 { root.hide-ui(); return; }
+        if index == 6 { root.show-osd("", Strings.s_menu_playback); return; }
+        if index == 7 { root.show-video(); return; }
+        if index == 8 { root.audio-popover-show = true; root.pin-chrome(); return; }
+        if index == 9 { root.subtitle-popover-show = true; root.pin-chrome(); return; }
+        if index == 10 { root.toggle-settings(); return; }
+        if index == 11 { root.toggle-queue(); return; }
+        if index == 12 { root.open-media-dialog(); return; }
+        if index == 13 { root.customize(); return; }
+        if index == 14 { root.quit(); }
+    }
+
+    hide-timer := Timer {
+        interval: 2s;
+        running: false;
+        triggered => {
+            if (!root.chrome-pinned && root.playing) { root.chrome-visible = false; }
+        }
+    }
+    osd-timer := Timer {
+        interval: 900ms;
+        running: false;
+        triggered => { root.osd-show = false; }
+    }
+
+    osd(key, text) => { root.show-osd(key, text); }
+
+    keys := FocusScope {
+        width: 100%; height: 100%;
+        key-pressed(event) => {
+            // Every shortcut goes through the remappable map: the shell normalises the
+            // combo and runs the bound action. Escape stays local so it can close
+            // whatever is open regardless of the user's bindings.
+            if (event.text == "Escape") {
+                if root.context-menu-show { root.context-menu-show = false; root.unpin-chrome(); }
+                if root.audio-popover-show { root.audio-popover-show = false; root.unpin-chrome(); }
+                if root.subtitle-popover-show { root.subtitle-popover-show = false; root.unpin-chrome(); }
+                if root.queue-show { root.queue-show = false; }
+                if root.sidebar-state.show { root.sidebar-state.show = false; root.unpin-chrome(); }
+                return accept;
+            }
+            if (root.hotkey(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt)) {
+                return accept;
+            }
+            reject
+        }
+
+        dropper := DropArea {
+            width: 100%; height: 100%;
+            can-drop(event) => { root.accepts-drop(event.data) ? DragAction.copy : DragAction.none }
+            dropped(event) => {
+                root.files-dropped(event.data);
+                return event.proposed-action;
+            }
+        }
+
+        // ---------- video stage (full-bleed, chrome floats on top) ----------
+        Rectangle {
+            width: 100%; height: 100%;
+            background: Theme.bg-video;
+            // The frame buffer is not always the video's own shape: libVLC scales whatever it
+            // decodes into the size the callback pipeline asked for. Laying the image out in a
+            // box that matches the *source* aspect and filling it undoes any such stretch, so a
+            // 4:3 film stays 4:3 instead of being widened to the window.
+            video-box := Rectangle {
+                width: root.video-aspect > 0
+                    ? Math.min(parent.width, parent.height * root.video-aspect)
+                    : parent.width;
+                height: root.video-aspect > 0
+                    ? Math.min(parent.height, parent.width / root.video-aspect)
+                    : parent.height;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                background: transparent;
+                Image {
+                    width: 100%; height: 100%;
+                    source: root.video-frame;
+                    image-fit: root.video-aspect > 0 ? ImageFit.fill : ImageFit.contain;
+                }
+            }
+        }
+
+        // ---------- music mode (Phase 7) ----------
+        // Audio-only files have no frame to show, so the stage becomes a cover card built
+        // from the accent colour instead of a black rectangle.
+        if root.music-mode: Rectangle {
+            width: 100%; height: 100%;
+            background: Theme.bg-base;
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2 - Theme.space-5;
+                width: 260px; height: 260px;
+                border-radius: Theme.radius-xl;
+                background: Theme.accent.mix(Theme.bg-base, 0.22);
+                border-width: Theme.border-width;
+                border-color: Theme.accent.mix(Theme.bg-base, 0.45);
+                // Three stacked bars read as a graphic equaliser without any artwork.
+                Rectangle {
+                    x: (parent.width - self.width) / 2; y: 96px;
+                    width: 74px; height: 8px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.accent.mix(Theme.bg-base, 0.7);
+                }
+                Rectangle {
+                    x: (parent.width - self.width) / 2; y: 118px;
+                    width: 48px; height: 8px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.accent.mix(Theme.bg-base, 0.55);
+                }
+                Rectangle {
+                    x: (parent.width - self.width) / 2; y: 140px;
+                    width: 92px; height: 8px;
+                    border-radius: Theme.radius-pill;
+                    background: Theme.accent.mix(Theme.bg-base, 0.4);
+                }
+            }
+            VerticalLayout {
+                y: (parent.height + 260px) / 2 - Theme.space-5 + Theme.space-4;
+                width: 100%;
+                spacing: Theme.space-1;
+                Text {
+                    height: Theme.text-6 * Theme.line-height;
+                    text: root.music-title;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-6;
+                    font-weight: 600;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                Text {
+                    height: Theme.text-3 * Theme.line-height;
+                    text: root.music-subtitle;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-3;
+                    overflow: elide;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ---------- own subtitle renderer (Phase 5) ----------
+        // Text is composited over the video without HWND airspace; delay/size/position are
+        // applied by core::SubtitleSession and pushed here each clock tick.
+        if root.subtitle-text != "": Rectangle {
+            x: 0;
+            y: (parent.height - self.height) * (1 - root.subtitle-position) - Theme.space-5;
+            width: 100%;
+            height: max(root.subtitle-font-size * 1.6, Theme.control-height-lg);
+            z: 5;
+            // Four offset copies form a 2px outline behind the white text.
+            Text {
+                x: -2px; y: 0; width: 100%; height: 100%;
+                text: root.subtitle-text; color: root.subtitle-outline-color;
+                font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
+                horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+            }
+            Text {
+                x: 2px; y: 0; width: 100%; height: 100%;
+                text: root.subtitle-text; color: root.subtitle-outline-color;
+                font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
+                horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+            }
+            Text {
+                x: 0; y: -2px; width: 100%; height: 100%;
+                text: root.subtitle-text; color: root.subtitle-outline-color;
+                font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
+                horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+            }
+            Text {
+                x: 0; y: 2px; width: 100%; height: 100%;
+                text: root.subtitle-text; color: root.subtitle-outline-color;
+                font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
+                horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+            }
+            Text {
+                x: 0; y: 0; width: 100%; height: 100%;
+                text: root.subtitle-text;
+                color: root.subtitle-color;
+                font-family: Theme.font;
+                font-size: root.subtitle-font-size;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                wrap: word-wrap;
+            }
+        }
+
+        surface := TouchArea {
+            width: 100%; height: 100%;
+            clicked => { if (root.click-pause) { root.toggle-play(); } }
+            double-clicked => {
+                if (root.double-click-action == 1) { root.toggle-play(); }
+                else { root.toggle-fullscreen(); }
+            }
+            moved => { root.reveal-chrome(); }
+            scroll-event(event) => {
+                if (root.wheel-action == 1) {
+                    root.seek-changed(clamp(root.seek-position - event.delta-y / 2400px, 0, 1));
+                } else {
+                    root.volume-wheeled(event.delta-y / 1px);
+                }
+                return accept;
+            }
+            pointer-event(event) => {
+                if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                    root.context-x = self.mouse-x;
+                    root.context-y = self.mouse-y;
+                    root.context-menu-show = true;
+                    root.pin-chrome();
+                }
+            }
+        }
+
+        // ---------- 40px custom title bar ----------
+        if root.chrome-visible && !root.chrome-hidden: Rectangle {
+            x: 0; y: 0;
+            width: 100%; height: Theme.player-topbar-height;
+            background: Theme.bg-elevated;
+
+            WindowMoveArea {
+                x: 0; y: 0;
+                width: parent.width - 5 * 36px;
+                height: 100%;
+                TouchArea {
+                    width: 100%; height: 100%;
+                    double-clicked => { root.toggle-maximize(); }
+                }
+            }
+
+            // Brand mark (doubles as the app menu entry point).
+            Rectangle {
+                x: root.mx(Theme.space-4, 22px);
+                y: (parent.height - self.height) / 2;
+                width: 22px; height: 22px;
+                border-radius: Theme.radius-sm;
+                background: Theme.accent;
+                Text {
+                    text: Strings.s_app_short;
+                    color: Theme.text-on-accent;
+                    font-family: Theme.font;
+                    font-size: 9px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                TouchArea { width: 100%; height: 100%; clicked => { root.toggle-settings(); } }
+            }
+
+            Text {
+                x: 80px; width: max(parent.width - 200px, 0px);
+                height: 100%;
+                text: root.filename;
+                color: Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                overflow: elide;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            VfmIconButton {
+                x: root.mx(parent.width - 180px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/pip.svg");
+                tooltip-text: Strings.s_action_pip;
+                clicked => { root.toggle-pip(); }
+            }
+            VfmIconButton {
+                x: root.mx(parent.width - 144px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/minimize.svg");
+                tooltip-text: Strings.s_action_minimize;
+                clicked => { root.minimize(); }
+            }
+            if !root.maximized: VfmIconButton {
+                x: root.mx(parent.width - 108px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/maximize.svg");
+                tooltip-text: Strings.s_action_maximize;
+                clicked => { root.toggle-maximize(); }
+            }
+            if root.maximized: VfmIconButton {
+                x: root.mx(parent.width - 108px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/restore.svg");
+                tooltip-text: Strings.s_action_restore;
+                clicked => { root.toggle-maximize(); }
+            }
+            VfmIconButton {
+                x: root.mx(parent.width - 72px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/fullscreen.svg");
+                tooltip-text: Strings.s_shortcut_fullscreen;
+                clicked => { root.toggle-fullscreen(); }
+            }
+            VfmIconButton {
+                x: root.mx(parent.width - 36px, 36px); y: 0;
+                size: 36px; glyph-size: Theme.icon-size-sm; square: true;
+                icon: @image-url("../../../assets/icons/control/close.svg");
+                tooltip-text: Strings.s_action_close;
+                clicked => { root.quit(); }
+            }
+        }
+
+        // ---------- 54px control strip ----------
+        if root.chrome-visible && !root.chrome-hidden: Rectangle {
+            y: parent.height - Theme.player-bottombar-height;
+            width: 100%; height: Theme.player-bottombar-height;
+            background: Theme.bg-elevated;
+
+            VfmIconButton {
+                x: root.mx(root.bar-inset, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/previous.svg");
+                tooltip-text: Strings.s_shortcut_previous;
+                clicked => { root.previous(); }
+            }
+
+            // Enlarged play/pause between previous and next.
+            Rectangle {
+                x: root.mx(root.play-x, Theme.player-play-width);
+                y: (parent.height - Theme.player-play-height) / 2;
+                width: Theme.player-play-width;
+                height: Theme.player-play-height;
+                border-radius: Theme.radius-md;
+                background: play-touch.pressed ? Theme.accent-pressed : (play-touch.has-hover ? Theme.accent-hover : Theme.accent);
+                Image {
+                    width: Theme.icon-size-sm; height: Theme.icon-size-sm;
+                    source: root.playing
+                        ? @image-url("../../../assets/icons/control/pause-on-accent.svg")
+                        : @image-url("../../../assets/icons/control/play-on-accent.svg");
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                play-touch := TouchArea { width: 100%; height: 100%; clicked => { root.toggle-play(); } }
+            }
+
+            VfmIconButton {
+                x: root.mx(root.next-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/next.svg");
+                tooltip-text: Strings.s_shortcut_next;
+                clicked => { root.next(); }
+            }
+
+            Text {
+                x: root.mx(root.elapsed-x, root.time-width);
+                y: 0; height: 100%;
+                width: root.time-width;
+                text: root.elapsed;
+                color: Theme.text-body;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                vertical-alignment: center;
+                horizontal-alignment: Theme.rtl ? right : left;
+            }
+
+            VfmSeekBar {
+                x: root.mx(root.seek-x, root.seek-w);
+                y: (parent.height - Theme.seek-height) / 2;
+                width: root.seek-w;
+                position: root.seek-position;
+                tooltip-text: root.seek-tooltip;
+                markers: root.seek-markers;
+                waveform-peaks: root.waveform-peaks;
+                waveform-visible: root.waveform-visible;
+                seek-changed(p) => { root.seek-changed(p); }
+                hovered(p) => { root.seek-hover(p); }
+            }
+
+            Text {
+                x: root.mx(root.duration-x, root.time-width);
+                y: 0; height: 100%;
+                width: root.time-width;
+                text: root.duration;
+                color: Theme.text-secondary;
+                font-family: Theme.font;
+                font-size: Theme.text-2;
+                vertical-alignment: center;
+                horizontal-alignment: Theme.rtl ? left : right;
+            }
+
+            // Volume: speaker + tapered cone.
+            if !root.muted: VfmIconButton {
+                x: root.mx(root.speaker-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/volume.svg");
+                tooltip-text: Strings.s_action_mute;
+                clicked => { root.toggle-mute(); }
+            }
+            if root.muted: VfmIconButton {
+                x: root.mx(root.speaker-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/volume-mute.svg");
+                tooltip-text: Strings.s_action_unmute;
+                clicked => { root.toggle-mute(); }
+            }
+            VfmVolumeCone {
+                x: root.mx(root.cone-x, Theme.volume-cone-width);
+                y: (parent.height - Theme.seek-height) / 2;
+                width: Theme.volume-cone-width;
+                value: root.volume-level / 100;
+                muted: root.muted;
+                changed(v) => { root.volume-changed(round(v * 100)); }
+            }
+
+            if root.bar-audio: VfmIconButton {
+                x: root.mx(root.tail-audio-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/equalizer.svg");
+                tooltip-text: Strings.s_action_audio;
+                clicked => { root.audio-popover-show = !root.audio-popover-show; root.pin-chrome(); }
+            }
+            if root.bar-subtitles: VfmIconButton {
+                x: root.mx(root.tail-subtitle-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/subtitles.svg");
+                tooltip-text: Strings.s_action_subtitles;
+                clicked => { root.subtitle-popover-show = !root.subtitle-popover-show; root.pin-chrome(); }
+            }
+            if root.bar-settings: VfmIconButton {
+                x: root.mx(root.tail-gear-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/settings.svg");
+                tooltip-text: Strings.s_action_settings;
+                clicked => { root.toggle-settings(); }
+            }
+            if root.bar-queue: VfmIconButton {
+                x: root.mx(root.tail-list-x, root.icon-slot);
+                y: (parent.height - root.icon-slot) / 2;
+                size: root.icon-slot;
+                icon: @image-url("../../../assets/icons/control/queue.svg");
+                tooltip-text: Strings.s_action_queue;
+                clicked => { root.toggle-queue(); }
+            }
+        }
+
+        // ---------- edge reveal strips when chrome is hidden ----------
+        if root.chrome-hidden: TouchArea {
+            y: 0; width: 100%; height: Theme.space-2;
+            moved => { root.chrome-hidden = false; root.reveal-chrome(); }
+            clicked => { root.chrome-hidden = false; root.reveal-chrome(); }
+        }
+        if root.chrome-hidden: TouchArea {
+            y: parent.height - Theme.space-2; width: 100%; height: Theme.space-2;
+            moved => { root.chrome-hidden = false; root.reveal-chrome(); }
+            clicked => { root.chrome-hidden = false; root.reveal-chrome(); }
+        }
+
+        // ---------- right-click menu ----------
+        VfmContextMenu {
+            x: min(root.context-x, root.width - self.width - Theme.space-2);
+            y: min(root.context-y, root.height - self.height - Theme.space-2);
+            z: 30;
+            show: root.context-menu-show;
+            items: root.context-items;
+            shortcuts: root.context-shortcuts;
+            icons: root.context-icons;
+            item-count: root.context-items.length;
+            item-clicked(i) => { root.handle-context-action(i); }
+        }
+
+        // ---------- continue watching (Phase 7) ----------
+        // Sits just above the control strip, centred, so it reads as an offer attached to
+        // the transport rather than a modal that blocks the video.
+        if root.continue-show: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - Theme.player-bottombar-height - self.height - Theme.space-4;
+            width: 340px;
+            height: 100px;
+            z: 31;
+            border-radius: Theme.radius-lg;
+            background: Theme.bg-elevated;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+            drop-shadow-blur: Theme.shadow-e2-blur;
+            drop-shadow-color: Theme.shadow-color;
+            drop-shadow-offset-y: Theme.shadow-e2-y;
+            VerticalLayout {
+                padding: Theme.space-3;
+                spacing: Theme.space-2;
+                Text {
+                    height: Theme.control-height-sm;
+                    text: Strings.s_continue_title;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-4;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                Text {
+                    height: Theme.control-height-sm;
+                    text: root.continue-label;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                HorizontalLayout {
+                    spacing: Theme.space-2;
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_continue_resume;
+                        primary: true;
+                        clicked => { root.continue-resume(); }
+                    }
+                    VfmButton {
+                        horizontal-stretch: 1;
+                        text: Strings.s_continue_restart;
+                        clicked => { root.continue-restart(); }
+                    }
+                }
+            }
+        }
+
+        // ---------- audio / subtitle track popovers (Phase 5) ----------
+        if root.audio-popover-show: Rectangle {
+            x: root.mx(root.tail-audio-x - Theme.menu-width + root.icon-slot, Theme.menu-width);
+            y: parent.height - Theme.player-bottombar-height - Theme.menu-row-height * min(root.audio-track-names.length + 1, 8) - Theme.space-4;
+            width: Theme.menu-width;
+            height: Theme.menu-row-height * min(root.audio-track-names.length + 1, 8) + Theme.space-3;
+            z: 29;
+            border-radius: Theme.radius-lg;
+            background: Theme.bg-elevated;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+            VerticalLayout {
+                padding: Theme.space-1;
+                spacing: 0px;
+                Text {
+                    text: Strings.s_tracks_audio;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    height: Theme.menu-row-height - Theme.space-2;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                for name[i] in root.audio-track-names: Rectangle {
+                    height: Theme.menu-row-height;
+                    border-radius: Theme.radius-md;
+                    background: i == root.audio-track-current ? Theme.accent-soft : (trackhover.has-hover ? Theme.bg-surface : transparent);
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        Text { text: name; color: i == root.audio-track-current ? Theme.accent : Theme.text-body; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+                    }
+                    trackhover := TouchArea {
+                        width: 100%; height: 100%;
+                        clicked => { root.select-audio-track(i); root.audio-popover-show = false; root.unpin-chrome(); }
+                    }
+                }
+                Rectangle {
+                    height: Theme.menu-row-height;
+                    border-radius: Theme.radius-md;
+                    background: trackoff.has-hover ? Theme.bg-surface : transparent;
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        Text { text: Strings.s_tracks_off; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+                    }
+                    trackoff := TouchArea {
+                        width: 100%; height: 100%;
+                        clicked => { root.select-audio-track(-1); root.audio-popover-show = false; root.unpin-chrome(); }
+                    }
+                }
+            }
+        }
+
+        if root.subtitle-popover-show: Rectangle {
+            x: root.mx(root.tail-subtitle-x - Theme.menu-width + root.icon-slot, Theme.menu-width);
+            y: parent.height - Theme.player-bottombar-height - Theme.menu-row-height * min(root.subtitle-track-names.length + 2, 8) - Theme.space-4;
+            width: Theme.menu-width;
+            height: Theme.menu-row-height * min(root.subtitle-track-names.length + 2, 8) + Theme.space-3;
+            z: 29;
+            border-radius: Theme.radius-lg;
+            background: Theme.bg-elevated;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+            VerticalLayout {
+                padding: Theme.space-1;
+                spacing: 0px;
+                Text {
+                    text: Strings.s_tracks_subtitles;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    height: Theme.menu-row-height - Theme.space-2;
+                    vertical-alignment: center;
+                    horizontal-alignment: Theme.rtl ? right : left;
+                }
+                for name[i] in root.subtitle-track-names: Rectangle {
+                    height: Theme.menu-row-height;
+                    border-radius: Theme.radius-md;
+                    background: i == root.subtitle-track-current ? Theme.accent-soft : (strackhover.has-hover ? Theme.bg-surface : transparent);
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        Text { text: name; color: i == root.subtitle-track-current ? Theme.accent : Theme.text-body; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+                    }
+                    strackhover := TouchArea {
+                        width: 100%; height: 100%;
+                        clicked => { root.select-subtitle-track(i); root.subtitle-popover-show = false; root.unpin-chrome(); }
+                    }
+                }
+                Rectangle {
+                    height: Theme.menu-row-height;
+                    border-radius: Theme.radius-md;
+                    background: stroff.has-hover ? Theme.bg-surface : transparent;
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        Text { text: Strings.s_tracks_off; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+                    }
+                    stroff := TouchArea {
+                        width: 100%; height: 100%;
+                        clicked => { root.select-subtitle-track(-1); root.subtitle-popover-show = false; root.unpin-chrome(); }
+                    }
+                }
+                Rectangle {
+                    height: Theme.menu-row-height;
+                    border-radius: Theme.radius-md;
+                    background: loadhover.has-hover ? Theme.bg-surface : transparent;
+                    HorizontalLayout {
+                        padding-left: Theme.space-3;
+                        Text { text: Strings.s_subtitle_external; color: Theme.accent; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+                    }
+                    loadhover := TouchArea {
+                        width: 100%; height: 100%;
+                        clicked => { root.load-subtitles(); root.subtitle-popover-show = false; root.unpin-chrome(); }
+                    }
+                }
+            }
+        }
+
+        // ---------- queue panel (Phase 4) ----------
+        QueuePanel {
+            rows: root.queue-rows;
+            show: root.queue-show;
+            current-index: root.queue-current;
+            view-width: root.width;
+            view-height: root.height;
+            play-at(i) => { root.queue-play-at(i); }
+            remove-at(i) => { root.queue-remove-at(i); }
+            move-row(a, b) => { root.queue-move(a, b); }
+            clear => { root.queue-clear(); }
+            close => { root.queue-show = false; }
+        }
+
+        // ---------- right sidebar (Phase 6) ----------
+        RightSidebar {
+            state <=> root.sidebar-state;
+            preset-rows: root.preset-rows;
+            eq-options: root.eq-options;
+            audio-device-options: root.audio-device-options;
+            aspect-options: root.aspect-options;
+            chapter-rows: root.chapter-rows;
+            bookmark-rows: root.bookmark-rows;
+            metadata-rows: root.metadata-rows;
+            bookmark-index <=> root.bookmark-index;
+            view-width: root.width;
+            view-height: root.height;
+            preview-frame: root.video-frame;
+            close => { root.sidebar-state.show = false; root.unpin-chrome(); }
+            setting-changed(key, value) => { root.sidebar-setting-changed(key, value); }
+            toggle-changed(key, value) => { root.sidebar-toggle-changed(key, value); }
+            option-changed(key, index) => { root.sidebar-option-changed(key, index); }
+            preset-action(action, index) => { root.preset-action(action, index); }
+            timeline-action(action, index) => { root.timeline-action(action, index); }
+        }
+
+        // ---------- seek thumbnail preview (Phase 5) ----------
+        if root.seek-thumbnail-show && root.seek-thumbnail.width > 0: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - Theme.player-bottombar-height - Theme.thumbnail-height - Theme.space-4;
+            width: Theme.thumbnail-width;
+            height: Theme.thumbnail-height;
+            z: 24;
+            border-radius: Theme.radius-md;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+            background: Theme.bg-video;
+            clip: true;
+            Image {
+                width: 100%; height: 100%;
+                source: root.seek-thumbnail;
+                image-fit: ImageFit.cover;
+            }
+        }
+
+        // ---------- OpenSubtitles search (Phase 7) ----------
+        if root.subs-dialog-show: Rectangle {
+            width: 100%; height: 100%;
+            background: #000000A6;
+            z: 40;
+            TouchArea { width: 100%; height: 100%; clicked => { root.subs-action("close", -1); } }
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                width: 480px;
+                // Grows with the result list instead of leaving a fixed empty area.
+                height: min(560px, 300px + root.subs-rows.length * 48px);
+                border-radius: Theme.radius-lg;
+                background: Theme.bg-elevated;
+                border-width: Theme.border-width;
+                border-color: Theme.border-default;
+                drop-shadow-blur: Theme.shadow-e3-blur;
+                drop-shadow-color: Theme.shadow-color;
+                drop-shadow-offset-y: Theme.shadow-e3-y;
+                // Declared first so it sits under the controls but still swallows clicks
+                // meant for the card's own background.
+                TouchArea { width: 100%; height: 100%; }
+                VerticalLayout {
+                    padding: Theme.space-4;
+                    spacing: Theme.space-2;
+                    Text {
+                        height: Theme.control-height-md;
+                        text: Strings.s_opensubtitles_title;
+                        color: Theme.text-primary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-5;
+                        font-weight: 600;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    if root.subs-key-needed: Rectangle {
+                        height: Theme.control-height-md;
+                        border-radius: Theme.radius-md;
+                        border-width: Theme.border-width;
+                        border-color: Theme.border-default;
+                        background: Theme.bg-surface;
+                        HorizontalLayout {
+                            padding-left: Theme.space-3;
+                            padding-right: Theme.space-3;
+                            spacing: Theme.space-2;
+                            TextInput {
+                                width: 100%; height: 100%;
+                                text <=> root.subs-key;
+                                color: Theme.text-primary;
+                                font-family: Theme.font;
+                                font-size: Theme.text-3;
+                                vertical-alignment: center;
+                                accepted => { root.subs-action("save-key", -1); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: Theme.control-height-md;
+                            border-radius: Theme.radius-md;
+                            border-width: Theme.border-width;
+                            border-color: Theme.border-default;
+                            background: Theme.bg-surface;
+                            HorizontalLayout {
+                                padding-left: Theme.space-3;
+                                padding-right: Theme.space-3;
+                                TextInput {
+                                    width: 100%; height: 100%;
+                                    text <=> root.subs-query;
+                                    color: Theme.text-primary;
+                                    font-family: Theme.font;
+                                    font-size: Theme.text-3;
+                                    vertical-alignment: center;
+                                    accepted => { root.subs-action("search", -1); }
+                                }
+                            }
+                        }
+                        VfmButton {
+                            width: 92px;
+                            text: Strings.s_opensubtitles_search;
+                            primary: true;
+                            disabled: root.subs-busy;
+                            clicked => { root.subs-action("search", -1); }
+                        }
+                    }
+                    Text {
+                        height: Theme.control-height-sm;
+                        text: root.subs-status;
+                        color: Theme.text-secondary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                    Flickable {
+                        vertical-stretch: 1;
+                        content-height: max(self.height, root.subs-rows.length * 48px);
+                        VerticalLayout {
+                            spacing: Theme.space-1;
+                            for row[i] in root.subs-rows: Rectangle {
+                                height: 48px;
+                                border-radius: Theme.radius-md;
+                                background: hitrow.has-hover ? Theme.bg-surface : transparent;
+                                VerticalLayout {
+                                    padding-left: Theme.space-2;
+                                    padding-right: Theme.space-2;
+                                    spacing: 0px;
+                                    Text {
+                                        text: row.title;
+                                        color: Theme.text-primary;
+                                        font-family: Theme.font;
+                                        font-size: Theme.text-3;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                        horizontal-alignment: Theme.rtl ? right : left;
+                                    }
+                                    Text {
+                                        text: row.meta;
+                                        color: Theme.text-secondary;
+                                        font-family: Theme.font;
+                                        font-size: Theme.text-1;
+                                        overflow: elide;
+                                        vertical-alignment: center;
+                                        horizontal-alignment: Theme.rtl ? right : left;
+                                    }
+                                }
+                                hitrow := TouchArea {
+                                    width: 100%; height: 100%;
+                                    clicked => { root.subs-action("download", i); }
+                                }
+                            }
+                        }
+                    }
+                    VfmButton {
+                        text: Strings.s_action_close;
+                        clicked => { root.subs-action("close", -1); }
+                    }
+                }
+            }
+        }
+
+        // ---------- shortcut OSD ----------
+        if root.osd-show: Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height / 2 - Theme.space-7;
+            width: Theme.tooltip-width + Theme.space-6;
+            height: Theme.control-height-lg;
+            z: 25;
+            border-radius: Theme.radius-lg;
+            background: Theme.bg-overlay;
+            border-width: Theme.border-width;
+            border-color: Theme.border-default;
+            HorizontalLayout {
+                padding-left: Theme.space-3;
+                padding-right: Theme.space-3;
+                spacing: Theme.space-3;
+                alignment: LayoutAlignment.center;
+                if root.osd-key != "": Rectangle {
+                    width: Theme.control-height-sm; height: Theme.control-height-sm;
+                    border-radius: Theme.radius-sm;
+                    background: Theme.accent;
+                    Text { text: root.osd-key; color: Theme.text-on-accent; font-family: Theme.font; font-size: Theme.text-1; horizontal-alignment: center; vertical-alignment: center; }
+                }
+                Text { text: root.osd-action; color: Theme.text-primary; font-family: Theme.font; font-size: Theme.text-3; vertical-alignment: center; }
+            }
+        }
+
+        // ---------- drop hint ----------
+        if root.drag-hover: Rectangle {
+            width: 100%; height: 100%;
+            z: 20;
+            background: Theme.bg-overlay;
+            Text {
+                text: Strings.s_gallery_drop_hint;
+                color: Theme.accent;
+                font-family: Theme.font;
+                font-size: Theme.text-6;
+                font-weight: 600;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

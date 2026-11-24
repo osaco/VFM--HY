@@ -1,0 +1,290 @@
+// Hidden Phase 2 design-system gallery. Open with `vfm-spike --gallery`.
+// Layout follows the Figma observation: dark app surface, quiet inset panels, amber accent,
+// 4px spacing grid, and compact control rows. No component is styled directly here.
+
+import { Theme } from "theme.slint";
+import { Strings } from "strings.slint";
+import { ScrollView } from "std-widgets.slint";
+import {
+    VfmButton, VfmIconButton, VfmTooltip, VfmToggle, VfmSlider, VfmSeekBar, VfmVolumeCone,
+    VfmDropdown, VfmTabs, VfmListRow, VfmCard, VfmGridItem, VfmContextMenu, VfmDialog,
+    VfmSidebarPanel, VfmScrollBar, VfmSearchField, VfmBreadcrumb, VfmToast,
+} from "components.slint";
+
+component SectionHeader inherits Rectangle {
+    in property <string> title;
+    height: Theme.control-height-lg;
+    Text {
+        x: 0; y: 0;
+        text: root.title;
+        color: Theme.text-secondary;
+        font-family: Theme.font;
+        font-size: Theme.text-2;
+        font-weight: 600;
+        vertical-alignment: center;
+        horizontal-alignment: Theme.rtl ? right : left;
+    }
+}
+
+component IconTile inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    width: Theme.thumbnail-width / 2;
+    height: Theme.thumbnail-height;
+    border-radius: Theme.radius-md;
+    background: Theme.bg-surface;
+    border-width: Theme.border-width;
+    border-color: Theme.border-subtle;
+    VerticalLayout {
+        padding: Theme.space-2;
+        spacing: Theme.space-2;
+        alignment: LayoutAlignment.center;
+        Image { width: Theme.icon-size-lg; height: Theme.icon-size-lg; source: root.icon; }
+        Text {
+            text: root.label;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-1;
+            horizontal-alignment: center;
+            overflow: elide;
+        }
+    }
+}
+
+export component GalleryWindow inherits Window {
+    width: 1440px;
+    height: 900px;
+    title: Strings.s_gallery_title;
+    icon: @image-url("../../../assets/branding/vfm-256.png");
+    background: Theme.bg-base;
+
+    in-out property <float> slider-value: 0.65;
+    in-out property <float> seek-position: 0.42;
+    in-out property <float> volume-value: 0.7;
+    in-out property <float> scroll-value: 0.2;
+    in-out property <bool> checked: true;
+    in-out property <bool> dialog-show: false;
+    in-out property <string> search-text;
+
+    property <[string]> settings-items: [
+        Strings.s_settings_general, Strings.s_settings_interface, Strings.s_settings_privacy,
+        Strings.s_settings_controls, Strings.s_settings_playback, Strings.s_settings_library,
+        Strings.s_settings_network, Strings.s_settings_performance,
+    ];
+    property <[string]> tab-items: [
+        Strings.s_action_subtitles, Strings.s_action_audio, Strings.s_action_video, Strings.s_settings_playback,
+    ];
+    property <[string]> menu-items: [
+        Strings.s_action_play, Strings.s_action_stop, Strings.s_action_previous, Strings.s_action_next,
+        Strings.s_menu_hide_ui, Strings.s_action_settings, Strings.s_action_queue, Strings.s_menu_quit,
+    ];
+    property <[string]> menu-shortcuts: [
+        Strings.s_shortcut_play, "", "", "", Strings.s_shortcut_hide_ui, "", "", "",
+    ];
+    property <[string]> breadcrumb-parts: [
+        Strings.s_app_title, Strings.s_settings_library, Strings.s_settings_interface,
+    ];
+
+    callback toggle-theme();
+    callback toggle-language();
+    callback cycle-accent();
+    callback close-gallery();
+
+    VerticalLayout {
+        // ---------- toolbar ----------
+        Rectangle {
+            height: Theme.space-7;
+            background: Theme.bg-surface;
+            border-width: 0px;
+            Rectangle {
+                y: parent.height - Theme.border-width;
+                width: 100%; height: Theme.border-width;
+                background: Theme.border-subtle;
+            }
+            HorizontalLayout {
+                padding-left: Theme.space-5;
+                padding-right: Theme.space-5;
+                spacing: Theme.space-3;
+                alignment: LayoutAlignment.center;
+                Text {
+                    text: Strings.s_gallery_title;
+                    color: Theme.text-primary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-6;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: Strings.s_gallery_subtitle;
+                    color: Theme.text-secondary;
+                    font-family: Theme.font;
+                    font-size: Theme.text-2;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                VfmButton { text: Theme.mode == 0 ? Strings.s_theme_dark : Strings.s_theme_light; clicked => { root.toggle-theme(); } }
+                VfmButton { text: Strings.s_gallery_language; clicked => { root.toggle-language(); } }
+                VfmButton { text: Strings.s_gallery_accent; clicked => { root.cycle-accent(); } }
+                VfmIconButton {
+                    icon: @image-url("../../../assets/icons/control/close.svg");
+                    tooltip-text: Strings.s_action_close;
+                    clicked => { root.close-gallery(); }
+                }
+            }
+        }
+
+        // ---------- body ----------
+        HorizontalLayout {
+            height: root.height - Theme.space-7;
+            padding: Theme.space-4;
+            spacing: Theme.space-5;
+
+            VfmSidebarPanel {
+                header: Strings.s_gallery_appearance;
+                items: root.settings-items;
+                item-count: root.settings-items.length;
+                current-index: 2;
+                width: Theme.menu-width;
+            }
+
+            ScrollView {
+                width: 100%; height: 100%;
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    width: 100%;
+                    spacing: Theme.space-4;
+
+                    SectionHeader { title: Strings.s_gallery_states; }
+                    HorizontalLayout {
+                        spacing: Theme.space-3;
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_default; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; } }
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_hover; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; force-hover: true; } }
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_pressed; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; force-pressed: true; } }
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_focus; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; force-focus: true; } }
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_disabled; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; disabled: true; } }
+                        VerticalLayout { spacing: Theme.space-1; Text { text: Strings.s_state_selected; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmButton { text: Strings.s_action_play; selected: true; primary: true; } }
+                    }
+                    HorizontalLayout {
+                        spacing: Theme.space-2;
+                        VfmIconButton { icon: @image-url("../../../assets/icons/control/play.svg"); tooltip-text: Strings.s_action_play; }
+                        VfmIconButton { icon: @image-url("../../../assets/icons/control/pause.svg"); tooltip-text: Strings.s_action_pause; force-hover: true; }
+                        VfmIconButton { icon: @image-url("../../../assets/icons/control/stop.svg"); tooltip-text: Strings.s_action_stop; force-pressed: true; }
+                        VfmIconButton { icon: @image-url("../../../assets/icons/control/settings.svg"); tooltip-text: Strings.s_action_settings; force-focus: true; }
+                        VfmIconButton { icon: @image-url("../../../assets/icons/control/queue.svg"); tooltip-text: Strings.s_action_queue; disabled: true; }
+                        VfmListRow { title: Strings.s_sample_title; subtitle: Strings.s_sample_subtitle; selected: true; horizontal-stretch: 1; }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_controls; }
+                    HorizontalLayout {
+                        spacing: Theme.space-4;
+                        VerticalLayout { spacing: Theme.space-2; width: 220px; Text { text: Strings.s_component_toggle; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmToggle { checked: root.checked; changed(v) => { root.checked = v; } } }
+                        VerticalLayout { spacing: Theme.space-2; horizontal-stretch: 1; Text { text: Strings.s_component_slider; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmSlider { value: root.slider-value; changed(v) => { root.slider-value = v; } } }
+                        VerticalLayout { spacing: Theme.space-2; width: 200px; Text { text: Strings.s_component_volume_cone; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; } VfmVolumeCone { value: root.volume-value; changed(v) => { root.volume-value = v; } } }
+                    }
+                    VerticalLayout {
+                        spacing: Theme.space-1;
+                        Text { text: Strings.s_component_seekbar; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-1; }
+                        VfmSeekBar {
+                            position: root.seek-position;
+                            tooltip-text: Strings.s_sample_duration;
+                            seek-changed(v) => { root.seek-position = v; }
+                        }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_inputs; }
+                    HorizontalLayout {
+                        spacing: Theme.space-4;
+                        VfmSearchField { placeholder: Strings.s_action_search; text <=> root.search-text; width: Theme.menu-width; }
+                        VfmDropdown {
+                            options: [Strings.s_settings_interface, Strings.s_settings_playback, Strings.s_settings_library];
+                            current-index: 0;
+                            width: Theme.menu-width;
+                        }
+                        VfmBreadcrumb { parts: root.breadcrumb-parts; current-index: 2; horizontal-stretch: 1; }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_navigation; }
+                    HorizontalLayout {
+                        spacing: Theme.space-4;
+                        VfmTabs {
+                            model: root.tab-items;
+                            current-index: 0;
+                            horizontal-stretch: 1;
+                        }
+                        VfmScrollBar { value: root.scroll-value; page-size: 0.25; height: Theme.thumbnail-height; scrolled(v) => { root.scroll-value = v; } }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_data; }
+                    HorizontalLayout {
+                        spacing: Theme.space-4;
+                        VfmListRow { title: Strings.s_sample_title; subtitle: Strings.s_sample_subtitle; trailing-text: Strings.s_sample_duration; has-icon: true; icon: @image-url("../../../assets/icons/control/videos.svg"); horizontal-stretch: 1; }
+                        VfmCard { title: Strings.s_sample_title; subtitle: Strings.s_sample_subtitle; progress: 0.65; }
+                        VfmGridItem { title: Strings.s_sample_album; progress: 0.4; }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_overlays; }
+                    HorizontalLayout {
+                        spacing: Theme.space-4;
+                        Rectangle {
+                            width: Theme.menu-width; height: Theme.menu-row-height * 8 + Theme.space-2;
+                            VfmContextMenu {
+                                show: true;
+                                items: root.menu-items;
+                                shortcuts: root.menu-shortcuts;
+                                item-count: root.menu-items.length;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: Theme.space-3;
+                            horizontal-stretch: 1;
+                            VfmTooltip { text: Strings.s_tooltip_info; show: true; width: Theme.tooltip-width; }
+                            VfmToast { message: Strings.s_toast_saved; action-text: Strings.s_action_ok; show: true; }
+                            VfmButton { text: Strings.s_component_dialog; primary: true; clicked => { root.dialog-show = true; } }
+                        }
+                    }
+
+                    SectionHeader { title: Strings.s_gallery_icon_sets; }
+                    HorizontalLayout {
+                        spacing: Theme.space-5;
+                        VerticalLayout {
+                            spacing: Theme.space-2;
+                            Text { text: Strings.s_gallery_monochrome; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; }
+                            HorizontalLayout {
+                                spacing: Theme.space-2;
+                                IconTile { icon: @image-url("../../../assets/icons/control/play.svg"); label: Strings.s_action_play; }
+                                IconTile { icon: @image-url("../../../assets/icons/control/pause.svg"); label: Strings.s_action_pause; }
+                                IconTile { icon: @image-url("../../../assets/icons/control/volume.svg"); label: Strings.s_action_audio; }
+                                IconTile { icon: @image-url("../../../assets/icons/control/subtitles.svg"); label: Strings.s_action_subtitles; }
+                                IconTile { icon: @image-url("../../../assets/icons/control/video.svg"); label: Strings.s_action_video; }
+                                IconTile { icon: @image-url("../../../assets/icons/control/settings.svg"); label: Strings.s_action_settings; }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: Theme.space-2;
+                            Text { text: Strings.s_gallery_two_tone; color: Theme.text-secondary; font-family: Theme.font; font-size: Theme.text-2; }
+                            HorizontalLayout {
+                                spacing: Theme.space-2;
+                                IconTile { icon: @image-url("../../../assets/icons/menu/play.svg"); label: Strings.s_action_play; }
+                                IconTile { icon: @image-url("../../../assets/icons/menu/settings.svg"); label: Strings.s_action_settings; }
+                                IconTile { icon: @image-url("../../../assets/icons/menu/queue.svg"); label: Strings.s_action_queue; }
+                                IconTile { icon: @image-url("../../../assets/icons/menu/hide-ui.svg"); label: Strings.s_menu_hide_ui; }
+                                IconTile { icon: @image-url("../../../assets/icons/menu/browse.svg"); label: Strings.s_action_browse; }
+                                IconTile { icon: @image-url("../../../assets/icons/menu/record.svg"); label: Strings.s_settings_recording; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    VfmDialog {
+        show: root.dialog-show;
+        title: Strings.s_component_dialog;
+        body: Strings.s_gallery_subtitle;
+        primary-text: Strings.s_action_ok;
+        secondary-text: Strings.s_action_cancel;
+        primary => { root.dialog-show = false; }
+        secondary => { root.dialog-show = false; }
+    }
+}

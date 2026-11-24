@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = ["crates/vlc-wrapper", "crates/core", "crates/platform", "crates/app"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.92"
+
+[workspace.dependencies]
+libloading = "0.9"
+thiserror = "2"
+slint = { version = "1.19", features = ["unstable-fontique-012"] }
+slint-build = "1.19"
+clap = { version = "4", features = ["derive"] }
+bytemuck = "1"
+rusqlite = "0.32"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+symphonia = { version = "0.5", features = [
+    "mp3",
+    "aac",
+    "flac",
+    "isomp4",
+    "mkv",
+    "ogg",
+    "vorbis",
+    "wav",
+    "pcm",
+] }
+# Windows desktop target: native TLS (SChannel) keeps the build light and uses the
+# OS certificate store, so no ring/rustls toolchain and no bundled CA bundle.
+ureq = { version = "3", default-features = false, features = [
+    "json",
+    "gzip",
+    "native-tls",
+] }
+windows = { version = "0.62", features = [
+    "Media_Playback",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
+vlc-wrapper = { path = "crates/vlc-wrapper" }
+vfm-core = { path = "crates/core" }
+
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 8
