@@ -368,6 +368,15 @@ export component VfmSeekBar inherits Rectangle {
                 root.position = clamp(Theme.rtl ? 1 - p : p, 0, 1);
                 root.seek-changed(root.position);
             }
+            // Slint only calls `moved` while the TouchArea holds the pointer grab (a drag),
+            // so a plain hover would never reach the app's tooltip/thumbnail callback.
+            // `pointer-event` fires on every move; skip the drag case, which `moved` covers.
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.move && !self.pressed) {
+                    let p = self.mouse-x / max(self.width, 1px);
+                    root.hovered(clamp(Theme.rtl ? 1 - p : p, 0, 1));
+                }
+            }
             moved => {
                 let p = self.mouse-x / max(self.width, 1px);
                 if self.pressed {

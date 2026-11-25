@@ -30,7 +30,7 @@ cargo test --workspace
 cargo build --release -p vfm-app
 ```
 
-Expected counts on the 2026-11-25 baseline: **86 app + 159 core + 4 platform + 10 wrapper + 0 doc-test failures** (259 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
+Expected counts on the 2026-11-25 baseline: **86 app + 160 core + 4 platform + 10 wrapper + 0 doc-test failures** (260 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
 
 ## 3. Headless engine acceptance (two files, resume, persistence)
 
@@ -170,7 +170,7 @@ Theme and language come from `.\testdata\phase3-run\settings.toml`
 | 3 | Live sync | Change `SubtitleSession.delay_ms` while playing | Cues shift without restarting playback | Ready |
 | 4 | Audio/subtitle popovers | Click the equalizer / subtitle buttons or use the context menu | Track lists show human-readable names, active track accented | Ready |
 | 5 | LibVLC fallback | Select a real subtitle track ≥ 0 | Our overlay switches off, no double subtitles | Ready |
-| 6 | Seek preview | Hover a cached time bucket | Floating thumbnail appears above the control bar | Partial (cache only; grabber pending) |
+| 6 | Seek preview | Hover uncached time buckets while a clip plays | Tooltip shows the hover time; a frame decoded headlessly at that time appears as a floating thumbnail and is cached under `seek-thumbs/` | Ready (verified with a 60 s four-colour clip: 7.5 s → blue, 37.5 s → red) |
 
 ## 4f. Phase 6 right sidebar & presets checks
 

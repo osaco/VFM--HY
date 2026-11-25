@@ -1,7 +1,7 @@
 # Phase 5 summary — Tracks, seek thumbnails, subtitles (VFM)
 
-Status: **partly complete**. Subtitles, track selection and the popover UI work; seek-thumbnail
-generation is still not wired (see Known issues).
+Status: **complete for this host**. Subtitles, track selection, the popover UI and the headless
+seek-thumbnail grabber all work; the remaining caveats are listed under Known issues.
 
 ## What was done
 
@@ -25,8 +25,9 @@ The phase-4 subtitle parser was extended into a full runtime model:
   hovers reuse one grab.
 * **`SeekThumbnailCache`** — bounded, thread-safe LRU with file-backed entries and eviction;
   `GrabCancellation` is a sticky cancel token for in-flight grabs.
-* 3 unit tests. The app wires hover → cache lookup → Slint image preview (grabbing new
-  frames is the remaining integration step; see Known issues).
+* **`encode_rgba_png`** — turns the raw RGBA8 frame from libVLC's callbacks into a PNG for the
+  cache; round-trip unit test decodes it back and compares every byte.
+* 4 unit tests. The app wires hover → cache lookup → headless grab → Slint image preview.
 
 ### Subtitle UI glue (`crates/app/src/subtitles_ui.rs`, new)
 
@@ -48,8 +49,9 @@ The phase-4 subtitle parser was extended into a full runtime model:
 * **Audio + subtitle popovers** — opened from the control-bar equalizer/subtitles buttons or
   the right-click menu; list each track with the active one accented, plus "Off" and
   "Load subtitles" rows. Escape dismisses and unpins the chrome.
-* **Seek thumbnail preview** — a floating image above the control bar shown when a cached
-  thumbnail exists for the hovered time bucket.
+* **Seek thumbnail preview** — a floating image above the control bar, populated by a headless
+  libVLC player for the hovered time bucket. The preview is centred above the bar rather than
+  following the exact hover x.
 
 ### Rust wiring (`crates/app/src/main.rs`)
 
@@ -90,10 +92,15 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
 
 ## Known issues and deviations
 
-1. **Seek thumbnail generation is not yet wired.** The cache, bucketing, cancellation and UI
-   preview are implemented and tested, but no headless libVLC frame grabber populates the
-   cache yet, so the preview only appears if a file pre-exists in `seek-thumbs/`. The headless
-   grabber is the remaining integration step and must not disturb main playback.
+1. **Seek thumbnail generation is wired and verified.** A private libVLC instance with audio
+   disabled decodes one frame per hovered bucket through the same callback bridge as the main
+   player, encodes it as PNG and stores it in `seek-thumbs/`. It waits for the engine clock to
+   reach the target before taking a *new* frame, otherwise every thumbnail is the first frame.
+   Fast sweeps cancel older grabs; a grab never opens a window or touches main playback. Proof:
+   a 60 s clip with four 3 s colour segments produced a blue thumbnail for 7.5 s and a red one
+   for 37.5 s, together with the `0:37` tooltip (`docs/compare/phase-5-seek-thumbnail.png`).
+   libVLC seeks to keyframes, so a preview can land a few seconds before the hovered bucket —
+   these are approximate previews, not frame-exact stills.
 2. **ASS/SSA styling is a basic subset** — script styles, `Dialogue` rows, colours and inline
    italic/bold are parsed; complex override tags, drawing commands and bitmap ASS are not.
    Those fall back to libVLC rendering via track selection.

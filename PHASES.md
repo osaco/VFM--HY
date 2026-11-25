@@ -18,7 +18,7 @@ list the real gaps.
 | 2 — Design system | Implemented | — |
 | 3 — Player view | Implemented | — |
 | 4 — Queue & library | Implemented | 10k-item windowing not proven end to end; thumbnail generation is cache-first |
-| 5 — Tracks/subtitles/thumbs | Partly implemented | Headless seek-thumbnail grabber is not wired; rotation/flip now transform the rendered frame |
+| 5 — Tracks/subtitles/thumbs | Implemented | Seek preview is centre-anchored, not pinned to the hover x; rotation/flip transform the rendered frame |
 | 6 — Sidebar & presets | Implemented | Rotation/flip change the rendered frame; verified on screen in `docs/compare/transform-*.png` |
 | 7 — Advanced | Implemented | Embedded album art is not extracted; music mode uses a generated card |
 | 8 — Settings/hotkeys/a11y | Implemented | Windows high-contrast mode is not honoured |

@@ -158,6 +158,152 @@ fn refresh_track_models(
     subtitles_ui::push_track_names(ui, &a, &s);
 }
 
+/// Headless producer for the seek-bar hover thumbnails. The hover callback reads the cache;
+/// this is the other half — a one-shot libVLC player whose video frames land in callbacks
+/// instead of a window, so no picture-in-picture or extra HWND ever appears.
+#[derive(Clone)]
+struct SeekGrabber {
+    cache: Arc<vfm_core::SeekThumbnailCache>,
+    /// At most one grab in flight. A newer hover cancels the older one.
+    active: Arc<Mutex<Option<(PathBuf, i64, vfm_core::GrabCancellation)>>>,
+    /// Guards against showing a frame from the file the user just left.
+    current: Arc<Mutex<PathBuf>>,
+}
+
+impl SeekGrabber {
+    fn new(cache: Arc<vfm_core::SeekThumbnailCache>, current: Arc<Mutex<PathBuf>>) -> Self {
+        Self {
+            cache,
+            active: Arc::new(Mutex::new(None)),
+            current,
+        }
+    }
+
+    fn request(&self, media: PathBuf, time_ms: i64, ui: slint::Weak<PlayerWindow>) {
+        let cancel;
+        {
+            let mut active = self.active.lock().unwrap();
+            if active
+                .as_ref()
+                .is_some_and(|(p, t, _)| *p == media && *t == time_ms)
+            {
+                return;
+            }
+            if let Some((_, _, cancel)) = active.take() {
+                cancel.cancel();
+            }
+            cancel = vfm_core::GrabCancellation::new();
+            *active = Some((media.clone(), time_ms, cancel.clone()));
+        }
+        let this = self.clone();
+        let worker_cancel = cancel.clone();
+        std::thread::Builder::new()
+            .name("vfm-seek-thumb".into())
+            .spawn(move || {
+                let captured = this.capture(&media, time_ms, &worker_cancel);
+                {
+                    let mut active = this.active.lock().unwrap();
+                    if active
+                        .as_ref()
+                        .is_some_and(|(p, t, _)| *p == media && *t == time_ms)
+                    {
+                        *active = None;
+                    }
+                }
+                let Some(path) = captured else { return };
+                let current = this.current.lock().unwrap().clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if current.as_path() != media.as_path() {
+                        return;
+                    }
+                    let Some(u) = ui.upgrade() else { return };
+                    if let Ok(img) = Image::load_from_path(&path) {
+                        u.set_seek_thumbnail(img);
+                        u.set_seek_thumbnail_show(true);
+                    }
+                });
+            })
+            .ok();
+    }
+
+    /// Decode one frame at `time_ms` into the cache. Returns the PNG path on success.
+    fn capture(
+        &self,
+        media: &Path,
+        time_ms: i64,
+        cancel: &vfm_core::GrabCancellation,
+    ) -> Option<PathBuf> {
+        if let Some(path) = self.cache.get(media, time_ms) {
+            return Some(path);
+        }
+        // A private instance with audio disabled keeps this player from taking the audio
+        // device away from the one the user is watching.
+        let instance =
+            Instance::with_args(&["--no-audio", "--no-video-title-show", "--no-osd", "--quiet"])
+                .ok()?;
+        let source = instance.media_from_path(media).ok()?;
+        let mut player = source.player().ok()?;
+        const W: u32 = 480;
+        const H: u32 = 270;
+        player
+            .enable_video_callbacks(W, H, PixelFormat::Rgba)
+            .ok()?;
+        player.play().ok()?;
+        let bridge = player.frame_bridge()?;
+
+        // Wait for the vout to exist before seeking: libVLC ignores a seek issued before the
+        // demuxer has resolved the video track, which would capture the first frame instead.
+        let deadline = Instant::now() + Duration::from_secs(6);
+        while bridge.decoded() == 0 && Instant::now() < deadline && !cancel.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if cancel.is_cancelled() || bridge.decoded() == 0 {
+            player.stop();
+            return None;
+        }
+        let target = time_ms.max(0);
+        player.set_time_ms(target);
+        // libVLC reports the requested time as soon as the seek is issued, while the vout can
+        // still deliver a frame decoded before it. Wait for the clock to reach the target, let
+        // the pipeline flush, and only then take a *newly* decoded frame. Without this every
+        // thumbnail is the first frame of the file.
+        let deadline = Instant::now() + Duration::from_secs(6);
+        while target > 0
+            && player.time_ms() < target - 1
+            && Instant::now() < deadline
+            && !cancel.is_cancelled()
+        {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        let before = bridge.decoded();
+        let deadline = Instant::now() + Duration::from_secs(6);
+        while bridge.decoded() == before && Instant::now() < deadline && !cancel.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if cancel.is_cancelled() {
+            player.stop();
+            return None;
+        }
+        let mut rgba = vec![0u8; (W * H * 4) as usize];
+        let mut captured = false;
+        bridge.with_front(|src| {
+            rgba.copy_from_slice(src);
+            captured = true;
+        });
+        player.stop();
+        if !captured {
+            return None;
+        }
+        let png = vfm_core::encode_rgba_png(W, H, &rgba).ok()?;
+        std::fs::create_dir_all(self.cache.root()).ok()?;
+        let path = self.cache.path_for(media, time_ms);
+        std::fs::write(&path, png).ok()?;
+        self.cache.put(media, time_ms, path.clone());
+        Some(path)
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Choose the renderer before any Slint type is touched. On machines without a working GL
     // driver the GPU backends pay a context-creation timeout for *every* window, which put the
@@ -374,6 +520,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         data_dir.join("seek-thumbs"),
         64,
     ));
+    let seek_grabber = SeekGrabber::new(Arc::clone(&seek_cache), Arc::clone(&current_path));
     {
         let mut sc = subtitles.lock().unwrap();
         let mut loaded_any = false;
@@ -1046,23 +1193,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let p = Arc::clone(&player);
         let ui_weak = ui.as_weak();
-        let cache = Arc::clone(&seek_cache);
+        let grabber = seek_grabber.clone();
         let current = Arc::clone(&current_path);
         ui.on_seek_hover(move |pos| {
             let len = p.length_ms().max(0);
             let time_ms = (pos * len as f32) as i64;
             let tooltip = format_timecode(time_ms);
+            let bucket = vfm_core::bucket_position(pos, len, 32);
+            let media = current.lock().unwrap().clone();
             if let Some(u) = ui_weak.upgrade() {
                 u.set_seek_tooltip(tooltip.into());
-                let bucket = vfm_core::bucket_position(pos, len, 32);
-                let media = current.lock().unwrap().clone();
-                if let Some(thumb) = cache.get(&media, bucket) {
+                let cached = grabber.cache.get(&media, bucket);
+                if let Some(thumb) = cached {
                     if let Ok(img) = slint::Image::load_from_path(&thumb) {
                         u.set_seek_thumbnail(img);
                         u.set_seek_thumbnail_show(true);
                     }
                 } else {
                     u.set_seek_thumbnail_show(false);
+                    if len > 0 && !media.as_os_str().is_empty() {
+                        grabber.request(media, bucket, ui_weak.clone());
+                    }
                 }
             }
         });

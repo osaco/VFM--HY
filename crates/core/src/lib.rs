@@ -55,7 +55,7 @@ pub use presets::{
 };
 pub use progress::{should_resume, WatchProgress};
 pub use queue::{MediaItem, Queue, RepeatMode};
-pub use seek_thumbs::{bucket_position, GrabCancellation, SeekThumbnailCache};
+pub use seek_thumbs::{bucket_position, encode_rgba_png, GrabCancellation, SeekThumbnailCache};
 pub use settings::{
     Deinterlace, DoubleClickAction, Language, Settings, SettingsError, SettingsStore,
     SkipLoopFilter, StartPage, Theme, WheelAction, WindowState,

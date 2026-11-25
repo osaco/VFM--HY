@@ -7,6 +7,27 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+/// Encode a decoded RGBA8 frame as a PNG for the seek-thumbnail cache.
+///
+/// The thumbnail is written by the app's headless grabber, which receives raw pixels from
+/// libVLC's video callbacks. Encoding here keeps the file format in one unit-tested place and
+/// avoids a dependency on a system image encoder in the shipped bundle.
+pub fn encode_rgba_png(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> Result<Vec<u8>, png::EncodingError> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(rgba)?;
+    }
+    Ok(bytes)
+}
+
 /// Bucket a hover position into a time key so nearby hovers reuse one frame.
 pub fn bucket_position(position: f32, duration_ms: i64, buckets: u32) -> i64 {
     if duration_ms <= 0 || buckets == 0 {
@@ -114,6 +135,21 @@ impl GrabCancellation {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_png_round_trips_the_exact_rgba_pixels() {
+        let (w, h) = (3u32, 2u32);
+        let src: Vec<u8> = (0..(w * h * 4) as u8).collect();
+        let bytes = encode_rgba_png(w, h, &src).unwrap();
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+        let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        let mut reader = decoder.read_info().unwrap();
+        let mut out = vec![0u8; reader.output_buffer_size().expect("RGBA8 buffer size")];
+        let info = reader.next_frame(&mut out).unwrap();
+        assert_eq!((info.width, info.height), (w, h));
+        assert_eq!(info.color_type, png::ColorType::Rgba);
+        assert_eq!(&out[..info.buffer_size()], src.as_slice());
+    }
 
     #[test]
     fn buckets_are_bounded_and_repeatable() {

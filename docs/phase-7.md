@@ -174,5 +174,5 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
 3. Album art is not extracted; music mode draws an accent-coloured placeholder. Reading embedded
    covers needs an image decode path (libVLC `libvlc_media_get_meta` returns no artwork).
 4. OpenSubtitles needs a user-supplied API key; there is no key-provisioning flow.
-5. The headless seek-thumbnail grabber remains open from earlier phases. Rotation/flip and the
-   variable subtitle outline are now applied to the rendered frame.
+5. Rotation/flip, the variable subtitle outline and the headless seek-thumbnail grabber are now
+   applied to the rendered frame.

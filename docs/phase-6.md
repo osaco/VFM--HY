@@ -163,8 +163,8 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
    ten-band editor.
 3. Subtitle outline in the sidebar is stored and shown, while the Slint overlay still draws a
    fixed four-copy 2 px outline. Variable outline rendering is a small follow-up.
-4. The headless seek-thumbnail grabber from Phase 5 is still unwired, so seek preview only shows
-   cached images.
+4. The headless seek-thumbnail grabber from Phase 5 is wired; the preview is centred above the
+   control bar rather than pinned to the exact hover x.
 5. Native file/folder pickers remain deferred to Phase 9; library path entry uses a text field.
 6. Pre-existing open items remain: cone-icon branding decision, 4K GPU path, full Figma DPI
    comparison at 125/150/200 %.

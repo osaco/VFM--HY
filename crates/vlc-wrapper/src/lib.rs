@@ -163,12 +163,15 @@ unsafe impl Sync for MediaPlayer {}
 
 impl Instance {
     pub fn new() -> Result<Self, VlcError> {
+        Self::with_args(&["--no-video-title-show", "--no-osd", "--quiet"])
+    }
+
+    /// Create an instance with explicit libVLC options. Used by the headless seek-thumbnail
+    /// grabber, which must not open an audio device or a video window of its own.
+    pub fn with_args(options: &[&str]) -> Result<Self, VlcError> {
         let paths = VlcPaths::discover()?;
         let api = Arc::new(unsafe { sys::VlcApi::load(&paths)? });
-        let args: Vec<CString> = ["--no-video-title-show", "--no-osd", "--quiet"]
-            .iter()
-            .map(|s| CString::new(*s).unwrap())
-            .collect();
+        let args: Vec<CString> = options.iter().map(|s| CString::new(*s).unwrap()).collect();
         let mut argv: Vec<*mut i8> = args.iter().map(|s| s.as_ptr() as *mut i8).collect();
         // SAFETY: argv points at CStrings alive for the duration of this call; libVLC copies args.
         let handle = unsafe { (api.new)(argv.len() as i32, argv.as_mut_ptr()) };
