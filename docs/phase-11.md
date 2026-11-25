@@ -43,7 +43,19 @@ revision and must not be read as a result for this tree. The binary was also ren
   optional desktop shortcut, optional file associations (`--associate` / `--unassociate`),
   English and Arabic installer languages, uninstaller entry.
 * `package.ps1` compiles the installer only when ISCC is present, so the portable zip always
-  works.
+  works. On 2026-11-25 the script was made ASCII-only (Windows PowerShell 5.1 mis-parsed the
+  em-dash/ellipsis in a BOM-less UTF-8 file) and now writes the archive digest to
+  `dist/SHA256SUMS.txt` after zipping.
+* The bundle was verified the way a user receives it: the ZIP was extracted to a folder outside
+  the repository, `LIBVLC_PATH` was removed from the environment, and the extracted
+  `VFM.exe` played a real file and wrote `settings.toml` + `library.sqlite` into its data
+  directory. The seven-check GUI harness was then run against that extracted binary
+  (`VFM_EXE=<extracted>/VFM.exe`) and passed 7/7 — geometry, decode, space pause/resume,
+  1.5 s startup, library paint.
+* Known host caveat: this repository tree carries a low mandatory integrity label, so a copy of
+  the bundle *inside* `dist/` runs at low integrity and cannot write its data folder. Extracted
+  copies (the normal user flow) are unaffected. The startup error now names the failing file and
+  suggests `--data-dir` instead of printing a bare `os error 5`.
 
 ### CI (`.github/workflows/build.yml`, new)
 
@@ -81,7 +93,7 @@ revision and must not be read as a result for this tree. The binary was also ren
 | `generate_icons.py --check` | current |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --release --workspace --all-targets -- -D warnings` | clean |
-| `cargo test --release --workspace` | **247 passed** — 84 app, 149 core, 4 platform, 10 wrapper |
+| `cargo test --release --workspace` | **249 passed** — 86 app, 149 core, 4 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 | `tools/package.ps1 -SkipBuild` | portable zip written |
 

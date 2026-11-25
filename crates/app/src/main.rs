@@ -229,16 +229,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or_else(std::env::temp_dir)
             .join("VFM")
     });
-    std::fs::create_dir_all(&data_dir)?;
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        eprintln!(
+            "VFM cannot create its data folder:\n  {}\n  {e}\n\n\
+             Pick a writable location with --data-dir.",
+            data_dir.display()
+        );
+        return Err(e.into());
+    }
     crash::set_dir(data_dir.clone());
-    let settings = SettingsStore::with_file(data_dir.join("settings.toml"))?;
+    let settings_path = data_dir.join("settings.toml");
+    let settings = SettingsStore::with_file(settings_path.clone())?;
     if crash::diagnostics_enabled(settings.get().diagnostics) {
         eprintln!(
             "VFM diagnostics on — crash log: {}",
             data_dir.join("crash.log").display()
         );
     }
-    settings.flush()?; // materialise versioned defaults on first run
+    if let Err(e) = settings.flush() {
+        eprintln!(
+            "VFM cannot write its settings file:\n  {}\n  {e}\n\n\
+             The folder is read-only, on a protected drive, or owned by another user.\n\
+             Pick a writable location with --data-dir.",
+            settings_path.display()
+        );
+        return Err(e.into());
+    }
     let db_path = data_dir.join("library.sqlite");
     let db = LibraryStore::open(&db_path)?;
 
@@ -2025,7 +2041,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut timeline_len = 0i64;
                 // (target position, when the request was made) for a pending resume pause.
                 let mut resume_pause: Option<(i64, Instant)> = None;
-                let started = Instant::now();
+                // The bench clock starts when libVLC actually plays, not when this thread
+                // starts: window construction can take seconds and used to consume the whole
+                // measurement window, reporting 0 decoded frames.
+                let mut bench_started: Option<Instant> = None;
+                let mut bench_base = vfm_core::TelemetrySnapshot::default();
+                let spawned = Instant::now();
                 loop {
                     std::thread::sleep(Duration::from_millis(250));
                     tick += 1;
@@ -2260,7 +2281,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             l.set_playing(playing);
                         }
                     });
-                    if bench.is_some() && tick.is_multiple_of(4) {
+                    if bench_started.is_some() && tick.is_multiple_of(4) {
                         let w = telemetry.lock().unwrap().take_window();
                         println!(
                             "| {:>6.1} | {:>6.1} | {:>8.2} | {:>9.1} | {:>5.2} | {:>5.2} |",
@@ -2273,22 +2294,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                     if let Some(secs) = bench {
-                        if started.elapsed() >= Duration::from_secs(secs) {
+                        // Start on the first decoded frame: `is_playing` can stay false while
+                        // the vout is being created, but a frame is unambiguous evidence.
+                        if decoded > 0 && bench_started.is_none() {
+                            bench_started = Some(Instant::now());
+                            // Everything counted before this instant (startup probes, the
+                            // first frame) must not dilute the measured rate.
+                            bench_base = telemetry.lock().unwrap().snapshot();
+                        }
+                        // A bench that never starts playing must not hang forever, and it must
+                        // not print a zeroed summary as if it had measured anything.
+                        if bench_started.is_none()
+                            && spawned.elapsed() > Duration::from_secs(secs.saturating_add(45))
+                        {
+                            eprintln!(
+                                "VFM bench: playback never started after {}s (state={}, time={} ms) — no numbers to report",
+                                spawned.elapsed().as_secs(),
+                                p.state_code(),
+                                p.time_ms()
+                            );
+                            std::process::exit(2);
+                        }
+                        let elapsed = bench_started
+                            .map(|start| start.elapsed())
+                            .unwrap_or_default();
+                        if elapsed >= Duration::from_secs(secs) {
                             let s = telemetry.lock().unwrap().snapshot();
+                            // Rates are measured over the window that actually played, not
+                            // over the process lifetime (startup can take a long time).
+                            let measured = elapsed.as_secs_f32().max(1e-3);
+                            let decoded = s.decoded_frames.saturating_sub(bench_base.decoded_frames);
+                            // The two counters are sampled from different threads, so the
+                            // presenter can be one frame ahead of the decoder's tally.
+                            let presented = s
+                                .presented_frames
+                                .saturating_sub(bench_base.presented_frames)
+                                .min(decoded);
+                            let dropped = s.dropped_frames.saturating_sub(bench_base.dropped_frames);
+                            let drop_rate = if decoded + dropped == 0 {
+                                0.0
+                            } else {
+                                100.0 * dropped as f32 / (decoded + dropped) as f32
+                            };
+                            // One seek after the measured window, so the FPS averages above stay
+                            // clean. The latency ends when a *new* frame has been decoded at the
+                            // target position: `time_ms` alone can report the request before the
+                            // demuxer has landed a keyframe.
+                            let target = (p.length_ms() / 2).max(0);
+                            let decoded_before =
+                                p.frame_bridge().map(|f| f.decoded()).unwrap_or(0);
+                            let seek_start = Instant::now();
+                            p.set_time_ms(target);
+                            let mut seek_ms = None;
+                            while seek_start.elapsed() < Duration::from_secs(3) {
+                                std::thread::sleep(Duration::from_millis(10));
+                                let decoded_now =
+                                    p.frame_bridge().map(|f| f.decoded()).unwrap_or(0);
+                                if decoded_now > decoded_before
+                                    && (p.time_ms() - target).abs() < 500
+                                {
+                                    seek_ms = Some(seek_start.elapsed().as_millis());
+                                    break;
+                                }
+                            }
                             println!(
                                 "\n=== VFM Phase 0 summary ({} chroma, {}s, {}×{}) ===",
                                 args.chroma, secs, args.width, args.height
                             );
-                            println!("decoded frames : {}", s.decoded_frames);
-                            println!("presented      : {}", s.presented_frames);
-                            println!(
-                                "dropped        : {} ({:.2}%)",
-                                s.dropped_frames, s.drop_rate_pct
-                            );
-                            println!("decoded fps    : {:.2}", s.decoded_fps);
-                            println!("presented fps  : {:.2}", s.presented_fps);
+                            println!("decoded frames : {decoded}");
+                            println!("presented      : {presented}");
+                            println!("dropped        : {dropped} ({drop_rate:.2}%)");
+                            println!("decoded fps    : {:.2}", decoded as f32 / measured);
+                            println!("presented fps  : {:.2}", presented as f32 / measured);
                             println!("avg copy (ms)  : {:.3}", s.avg_copy_ms);
                             println!("p95 copy (ms)  : {:.3}", s.p95_copy_ms);
+                            match seek_ms {
+                                Some(ms) => println!("seek latency   : {ms} ms (to {target} ms)"),
+                                None => println!("seek latency   : >3000 ms (to {target} ms)"),
+                            }
                             let _ = slint::quit_event_loop();
                             // Detached presenter thread may still be inside invoke_from_event_loop;
                             // exit explicitly after printing the summary in bench mode.
@@ -3969,17 +4052,28 @@ fn apply_preset_for_path(
 /// progress and folder-scoped presets are all keyed by absolute path. Keeping
 /// one representation means "open the next episode" finds the same preset
 /// scope no matter how the file was opened.
+/// `Path::canonicalize` returns a verbatim `\\?\D:\...` path on Windows, and libVLC cannot open
+/// those: the input ends immediately with zero decoded frames. Hand the engine a plain drive
+/// path instead (UNC shares keep their `\\server\share` form).
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(text) if text.starts_with(r"\\?\UNC\") => PathBuf::from(format!(r"\\{}", &text[8..])),
+        Some(text) if text.starts_with(r"\\?\") => PathBuf::from(&text[4..]),
+        _ => path,
+    }
+}
+
 fn absolutize(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    if let Ok(canon) = path.canonicalize() {
-        return canon;
-    }
-    match std::env::current_dir() {
-        Ok(cwd) => cwd.join(path),
-        Err(_) => path.to_path_buf(),
-    }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        path.canonicalize()
+            .unwrap_or_else(|_| match std::env::current_dir() {
+                Ok(cwd) => cwd.join(path),
+                Err(_) => path.to_path_buf(),
+            })
+    };
+    without_verbatim_prefix(absolute)
 }
 
 // ---- Phase 7: bookmark helpers shared by the Ctrl+B shortcut and the sidebar list ----
@@ -4409,6 +4503,33 @@ fn db_path_hint(data_dir: &Path) -> String {
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+
+    #[test]
+    fn verbatim_paths_are_handed_to_libvlc_as_plain_paths() {
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\D:\media\a.mp4")),
+            PathBuf::from(r"D:\media\a.mp4")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"\\?\UNC\server\share\a.mp4")),
+            PathBuf::from(r"\\server\share\a.mp4")
+        );
+        assert_eq!(
+            without_verbatim_prefix(PathBuf::from(r"D:\media\a.mp4")),
+            PathBuf::from(r"D:\media\a.mp4")
+        );
+    }
+
+    #[test]
+    fn a_relative_media_path_becomes_a_plain_absolute_path() {
+        // `Cargo.toml` exists in the crate directory, so canonicalize succeeds here.
+        let path = absolutize(Path::new("Cargo.toml"));
+        assert!(path.is_absolute());
+        assert!(
+            !path.to_string_lossy().starts_with(r"\\?\"),
+            "libVLC cannot open verbatim paths: {path:?}"
+        );
+    }
 
     #[test]
     fn association_flags_do_not_require_media() {

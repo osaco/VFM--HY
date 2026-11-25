@@ -89,7 +89,10 @@ Two chromas are benchmarked side by side:
 - Clips: `testdata/1080p60.mp4` (1920×1080, H.264, 60 fps) and `testdata/4k30.mp4`
   (3840×2160, H.264, 30 fps), generated with `testsrc2` + `libx264 -preset ultrafast`.
 - Command: `cargo run --release -p vfm-app -- <clip> --width W --height H --bench 25 --chroma C`
-  with `LIBVLC_PATH=vendor/libvlc`. Each run prints 1 Hz rows and a final summary.
+  with `LIBVLC_PATH=vendor/libvlc`. Each run prints 1 Hz rows and a final summary (decoded /
+  presented / dropped frames, fps, copy ms, seek latency). Relative and absolute clip paths
+  both work: the app converts them to a plain drive path because libVLC cannot open the
+  `\\?\D:\...` verbatim form that `Path::canonicalize` returns.
 - `decoded/presented fps`, `drop %` and `avg/p95 copy ms` come from the in-app telemetry
   harness (`vfm-core::telemetry`). CPU/GPU % are sampled from Windows Task Manager /
   `Get-Counter` while the bench runs; GPU % requires the Slint wgpu renderer and is
@@ -106,34 +109,49 @@ Because `libvlc_video_set_callbacks` forces CPU YUV→RGB conversion plus a CPU�
 upload, 4K30 (especially 10-bit HEVC/AV1) can spike CPU. The measured path below tells us
 whether Phase 1 needs the GPU optimization sooner.
 
-### Measured results (release build, this Windows x64 host)
+### Measured results (2026-11-25 re-run, release build, i7-11800H)
 
-| Test clip | Chroma | Decoded fps | Presented fps | Dropped % | Avg copy ms | CPU % | GPU % | Pass? |
-|---|---|---|---|---|---|---|---|---|
-| 1080p60 H.264 | RGBA | 28.0 | 4.19 | 45.9 | 13.8 | — | N/A | No (see caveat) |
-| 1080p60 H.264 | RV32 | 58.4 | 3.46 | 48.5 | 17.5 | ~4.2% of 16 cores | N/A | Decode yes / present no |
-| 4K30 H.264 | RGBA | 4.9 | 1.86 | 37.8 | 75.2 | — | N/A | No |
-| 4K30 H.264 | RV32 | 27.6 | 2.12 | 47.9 | 86.5 | ~one core (noisy sample) | N/A | No |
+Host: 11th Gen Intel Core i7-11800H (8 cores / 16 threads), 15.7 GB RAM, Windows 11 Home
+22631, display via an IDDCX indirect adapter (no hardware GPU counters), Slint
+`winit-software` renderer. Each row is a 25 s `--bench 25` run; 1080p60 and 4K30 were run
+twice to show the spread. `decoded`/`presented` fps are measured over the window that
+actually played; `dropped` counts frames the double-buffer had to discard (libVLC drops
+late frames before the callback, so this is not the total decoder drop count).
 
-Raw 1 Hz rows and full summaries are saved in `docs/bench/*.log`.
+| Test clip | Chroma | Decoded fps | Presented fps | Dropped % | Avg copy ms | CPU (% of 16 threads) | Peak WS |
+|---|---|---|---|---|---|---|---|
+| 1080p60 H.264 | RGBA | 35.7 / 36.3 | 35.5 / 36.0 | 0.67 / 0.87 | 5.6 | 7.5 / 8.2 | 251 MB |
+| 1080p60 H.264 | RV32 | 60.0 | 48.2 | 16.3 | 7.6 | 4.2 | 251 MB |
+| 4K30 H.264 | RGBA | 8.4 / 9.1 | 8.4 / 9.1 | 0.00 | 26.7 / 25.4 | 10.4 / 10.1 | ~680 MB |
+
+Seek latency (to the first new frame at the 50 % point): 20–41 ms at 1080p, 72–82 ms at 4K.
+GPU load is not measurable in this session (indirect display adapter, software renderer);
+the frame copy/upload time is the `avg copy ms` column.
+
+Raw logs: `testdata/final-*.log`.
 
 ### Interpretation (important)
 
-1. **RV32 is decisively better than RGBA.** libVLC's native output is BGRA ("RV32"); asking
-   for "RGBA" forces an extra CPU conversion and roughly halves decode throughput
-   (1080p: 58.4 vs 28.0 fps; 4K: 27.6 vs 4.9 fps). The spec's assumption that RGBA avoids a
-   swizzle and is therefore faster is **not true on this libVLC build**. Use RV32 + R/B swap
-   as the default; support RGBA only for A/B testing.
-2. **The copy path meets the 1080p budget but not the 4K budget.** 17.5 ms at 1080p fits
-   under 16.7 ms only marginally (and includes the swizzle); 86.5 ms at 4K is ~2.6× the
-   33.3 ms budget. 4K cannot be done with this CPU-only path.
-3. **Presentation is the dominant bottleneck in this session.** The spike ran in an
-   automated/non-interactive desktop where Slint falls back to its software renderer and
-   presentation is throttled to ~2–4 fps. That inflates the drop counter and suppresses
-   presented fps; CPU stays around 0.7 core at 1080p, so the app is not CPU-saturated.
-   GPU % is N/A (no hardware acceleration / no GPU counters available here).
-   **These numbers must be re-run in an interactive session with a real GPU before Phase 1
-   sign-off.** The decode-fps and copy-ms columns are still valid comparative measurements.
+1. **RV32 decodes at the full 60 fps; RGBA does not.** libVLC's native output is BGRA
+   ("RV32"), so asking for RGBA forces an extra CPU conversion and caps 1080p60 at ~36 fps
+   (60.0 vs 36.3 decoded fps). The spec's assumption that RGBA avoids a swizzle and is
+   therefore faster is **not true on this libVLC build**.
+2. **Presentation, not decode, is the remaining limit.** With RV32 the decoder produces
+   60 fps but the consumer presents 48 fps: the 8.3 MB swizzle+copy costs 7.6 ms and the
+   software renderer cannot take every frame (16.3 % of frames discarded by the swap).
+   At 4K the 33 MB copy alone is ~26 ms against a 33.3 ms budget, and decode+convert leaves
+   ~9 fps.
+3. **4K30 is not viable on the CPU callback path.** ~9 fps at ~10 % CPU means the bottleneck
+   is the per-frame conversion/copy, not a lack of parallelism. Phase 1 needs the NV12 +
+   GPU path below before claiming 4K support.
+4. **The drop counter is not the decoder's drop count.** Frames that libVLC itself discards
+   before calling the display callback never reach our counters; the decoded-fps column is
+   the honest throughput measure.
+5. **Earlier numbers in this document are superseded.** They were taken in a
+   non-interactive desktop where presentation was throttled to 2–4 fps, which made the
+   present columns meaningless. The decode-fps comparison they drew (RV32 faster than RGBA)
+   still holds and is confirmed above.
+
 
 ### Optimization path if 4K30 is too slow (>2% drops or >25% CPU)
 
@@ -197,8 +215,9 @@ cargo test --workspace
 # interactive spike (release strongly recommended for video)
 cargo run --release -p vfm-app -- ".\testdata\1080p60.mp4" --width 1920 --height 1080
 
-# 25-second benchmarks
+# 25-second benchmarks (relative paths are fine; libVLC gets a plain absolute path)
 cargo run --release -p vfm-app -- ".\testdata\1080p60.mp4" --width 1920 --height 1080 --bench 25 --chroma rgba
+cargo run --release -p vfm-app -- ".\testdata\1080p60.mp4" --width 1920 --height 1080 --bench 25 --chroma rv32
 cargo run --release -p vfm-app -- ".\testdata\4k30.mp4"    --width 3840 --height 2160 --bench 25 --chroma rgba
 ```
 

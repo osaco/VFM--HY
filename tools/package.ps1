@@ -28,7 +28,7 @@ $exe = @(
 $libvlc = Join-Path $root "vendor\libvlc"
 
 if (-not $SkipBuild) {
-    Write-Host "Building $Configuration…"
+    Write-Host "Building $Configuration..."
     & cargo build --release -p vfm-app
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 }
@@ -65,8 +65,30 @@ if (Test-Path $docs) {
 
 $zip = Join-Path $root "dist\VFM-$version-portable.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip
+# Neither Compress-Archive nor ZipFile.CreateFromDirectory writes portable entry names on
+# Windows PowerShell 5.1: both store backslashes, which makes Info-ZIP warn and exit non-zero.
+# Adding the entries one by one keeps the separator as a forward slash.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$archive = [System.IO.Compression.ZipFile]::Open($zip, "Create")
+try {
+    foreach ($file in Get-ChildItem -Path $dist -Recurse -File) {
+        $entry = $file.FullName.Substring($dist.Length + 1).Replace("\", "/")
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $archive, $file.FullName, $entry,
+            [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
+} finally {
+    $archive.Dispose()
+}
 Write-Host "portable bundle: $zip"
+
+# Publish the digest next to the archive. The hash is deliberately kept out of the bundled
+# docs: writing it inside the archive would change the archive and invalidate the value.
+$hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+$sums = Join-Path $root "dist\SHA256SUMS.txt"
+"$hash  VFM-$version-portable.zip" | Set-Content -Path $sums -Encoding ascii
+Write-Host "sha256: $hash  (written to $sums)"
 
 # Installer (optional: only when Inno Setup is installed).
 $iscc = @(
@@ -76,9 +98,9 @@ $iscc = @(
 
 if ($iscc) {
     $iss = Join-Path $root "packaging\vfm.iss"
-    Write-Host "Compiling installer with $iscc…"
+    Write-Host "Compiling installer with $iscc..."
     & $iscc "/DAppVersion=$version" "/DSourceDir=$dist" "/DOutputDir=$(Join-Path $root 'dist')" $iss
     if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 } else {
-    Write-Host "Inno Setup not found — skipping installer (portable zip is ready)."
+    Write-Host "Inno Setup not found - skipping installer (portable zip is ready)."
 }

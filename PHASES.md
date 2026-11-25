@@ -13,7 +13,7 @@ list the real gaps.
 
 | Phase | State | Honest remainder |
 | --- | --- | --- |
-| 0 — Spike | Built and re-verified | 4K GPU path never measured |
+| 0 — Spike | Built and re-verified | 1080p60 ≈36 fps (RGBA) / 60 decoded fps (RV32); 4K30 ≈9 fps; NV12 + GPU path not implemented |
 | 1 — Core engine | Implemented | UI polls libVLC on a 4 Hz tick rather than consuming every typed event |
 | 2 — Design system | Implemented | — |
 | 3 — Player view | Implemented | — |
@@ -24,12 +24,26 @@ list the real gaps.
 | 8 — Settings/hotkeys/a11y | Implemented | Windows high-contrast mode is not honoured |
 | 9 — Media dialogs | Implemented | Capture devices are typed, not enumerated; conversion progress is estimated; RTSP serving is not offered |
 | 10 — Layout customisation | Partly implemented | The player applies which tail buttons exist, not their full order |
-| 11 — Hardening/release | In progress | DPI 125/150/200 %, multi-monitor, 4K, installer signing remain open |
+| 11 — Hardening/release | Portable bundle verified 7/7 | DPI 125/150/200 %, multi-monitor captures, installer signing remain open |
 
 **Baseline correction:** the supplied snapshot did not compile. Two build errors (a missing
 `SidebarState` field and a non-`Send` `Rc` crossing into the event loop) and one stale hotkey
 test were fixed on 2026-11-25 before any feature work; the previous "236 passed" claim was
 historical and did not describe this source tree.
+
+**Benchmark correction (2026-11-25):** the `--bench` harness had been reporting zero frames
+for relative media paths because `Path::canonicalize` returns a `\\?\D:\...` verbatim path and
+libVLC cannot open those — the input ends immediately with no decoded frames. `absolutize()`
+now strips the verbatim prefix, the harness measures fps over the window that actually
+played (not the process lifetime) and reports seek latency. Fresh numbers are in
+`docs/spike.md` §4; they show the CPU callback path at ~36 fps for 1080p60 (RGBA) and ~9 fps
+for 4K30, so 4K remains a known limitation.
+
+**Package verification (2026-11-25):** the portable ZIP was extracted outside the repository,
+run with `LIBVLC_PATH` unset (it found its own `libvlc.dll`/`plugins/`) and passed the seven-check
+GUI harness 7/7. The digest is written to `dist/SHA256SUMS.txt` by `tools/package.ps1`. The
+installer is still unbuilt — Inno Setup is not installed on this host — and the EXE icon is not
+embedded at link time.
 
 ## Phase 0 — Architecture spike (done)
 Finish Phase 0 on this Windows machine: make the workspace compile, pass fmt/clippy/tests,

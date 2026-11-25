@@ -51,7 +51,7 @@ but the other palette controls are still preview-only.
 | generator checks | current |
 | `cargo fmt` | clean |
 | `cargo clippy -D warnings` | clean |
-| `cargo test` | **247 passed** — 84 app, 149 core, 4 platform, 10 wrapper |
+| `cargo test` | **249 passed** — 86 app, 149 core, 4 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 
 ## Screenshots

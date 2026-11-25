@@ -264,29 +264,40 @@ def check_geometry(relative: str, src_w: int, src_h: int) -> None:
             record(f"geometry {name}", False, f"no player window in {elapsed:.1f}s")
             return
         force_foreground(win["hwnd"])
-        time.sleep(4.0)  # let a few frames land, including any size re-arm
 
-        grabbed = raw_grab(win["hwnd"])
-        if grabbed is None:
-            record(f"geometry {name}", False, "PrintWindow returned nothing")
-            return
-        width, height, pixels = grabbed
-        box = largest_blob(pixels, width, height)
-        if box is None:
+        # Poll until the picture settles instead of sleeping a fixed time. On a cold start the
+        # engine's size probe can land a few seconds after the window appears and re-arm the
+        # callback buffer; a single snapshot taken at 4 s then measures the *old* shape. The
+        # assertion is unchanged - a picture that never becomes round still fails.
+        deadline = time.time() + 15.0
+        measured = None
+        detail = ""
+        while time.time() < deadline:
+            time.sleep(0.6)
+            grabbed = raw_grab(win["hwnd"])
+            if grabbed is None:
+                continue
+            width, height, pixels = grabbed
+            box = largest_blob(pixels, width, height)
+            if box is None:
+                continue
+            _, _, blob_w, blob_h, count = box
+            # The clip draws a *circle*. If the picture is stretched to fill a buffer of the
+            # wrong shape, that circle comes back as an ellipse - which is what we measure.
+            measured = blob_w / blob_h
+            error = abs(measured - 1.0)
+            detail = (
+                f"source {src_w}x{src_h} ({src_w / src_h:.3f}) "
+                f"disc {blob_w}x{blob_h} ({measured:.3f}) roundness err {error * 100:.1f}% "
+                f"px {count} window {width}x{height}"
+            )
+            if error < 0.02:
+                break
+
+        if measured is None:
             record(f"geometry {name}", False, "no decoded frame on screen")
             return
-
-        _, _, blob_w, blob_h, count = box
-        # The clip draws a *circle*. If the picture is stretched to fill a buffer of the wrong
-        # shape, that circle comes back as an ellipse — which is exactly what we measure.
-        measured = blob_w / blob_h
-        error = abs(measured - 1.0)
-        detail = (
-            f"source {src_w}x{src_h} ({src_w / src_h:.3f}) "
-            f"disc {blob_w}x{blob_h} ({measured:.3f}) roundness err {error * 100:.1f}% "
-            f"px {count} window {width}x{height}"
-        )
-        record(f"geometry {name}", error < 0.08, detail)
+        record(f"geometry {name}", abs(measured - 1.0) < 0.08, detail)
     finally:
         stop(process)
 

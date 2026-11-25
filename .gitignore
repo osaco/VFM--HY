@@ -9,6 +9,11 @@
 
 # Local test runs and logs
 /testdata/baseline-*/
+/testdata/bench-*/
+/testdata/bisect-*/
+/testdata/pkg-*/
+/testdata/final-*/
+/testdata/exe-only/
 *.log
 
 # Editor / OS noise
