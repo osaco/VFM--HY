@@ -68,6 +68,64 @@ component FieldRow inherits Rectangle {
     }
 }
 
+// A compact picker over the devices DirectShow actually reported. Clicking a row fills the
+// matching typed field; the field stays editable so a name not on this host can still be used.
+component DeviceList inherits Rectangle {
+    in property <string> title;
+    in property <[string]> devices;
+    callback picked(string);
+
+    // Fixed and clipped: an unusually long device list must never grow into the footer.
+    height: 72px;
+    clip: true;
+    VerticalLayout {
+        spacing: 2px;
+        Text {
+            height: 16px;
+            text: root.title;
+            color: Theme.text-secondary;
+            font-family: Theme.font;
+            font-size: Theme.text-2;
+            horizontal-alignment: Theme.rtl ? right : left;
+        }
+        Rectangle {
+            border-radius: Theme.radius-md;
+            border-width: Theme.border-width;
+            border-color: Theme.border-subtle;
+            background: Theme.bg-surface;
+            clip: true;
+            VerticalLayout {
+                for device in root.devices: Rectangle {
+                    height: 26px;
+                    touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: pointer;
+                        clicked => { root.picked(device); }
+                    }
+                    if touch.has-hover: Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: Theme.accent-soft;
+                    }
+                    Text {
+                        x: Theme.space-2;
+                        width: parent.width - Theme.space-4;
+                        height: 100%;
+                        text: device;
+                        color: Theme.text-primary;
+                        font-family: Theme.font;
+                        font-size: Theme.text-2;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-alignment: Theme.rtl ? right : left;
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component OpenMediaWindow inherits Window {
     width: 720px;
     height: 560px;
@@ -88,6 +146,8 @@ export component OpenMediaWindow inherits Window {
     in-out property <string> capture-audio;
     in-out property <string> capture-size;
     in-out property <string> capture-fps;
+    in-out property <[string]> capture-video-devices;
+    in-out property <[string]> capture-audio-devices;
 
     in-out property <[RecentRow]> recent;
     in-out property <string> recent-empty;
@@ -281,7 +341,30 @@ export component OpenMediaWindow inherits Window {
                             }
                         }
                     }
-                    Text {
+                    // Real devices, when Windows reports any. The column titles stand in for a
+                    // separate heading, keeping the block within the dialog's height budget.
+                    if root.capture-video-devices.length > 0 || root.capture-audio-devices.length > 0: HorizontalLayout {
+                        height: 72px;
+                        spacing: Theme.space-3;
+                        if root.capture-video-devices.length > 0: DeviceList {
+                            title: Strings.s_open_capture_cameras;
+                            devices: root.capture-video-devices;
+                            picked(name) => {
+                                root.capture-video = name;
+                                root.capture-video-edited(name);
+                            }
+                        }
+                        if root.capture-audio-devices.length > 0: DeviceList {
+                            title: Strings.s_open_capture_microphones;
+                            devices: root.capture-audio-devices;
+                            picked(name) => {
+                                root.capture-audio = name;
+                                root.capture-audio-edited(name);
+                            }
+                        }
+                    }
+                    // The guidance only needs the space when there is no picker to use instead.
+                    if root.capture-video-devices.length == 0 && root.capture-audio-devices.length == 0: Text {
                         text: Strings.s_open_capture_hint;
                         color: Theme.text-secondary;
                         font-family: Theme.font;

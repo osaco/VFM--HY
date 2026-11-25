@@ -782,6 +782,10 @@ pub fn apply_app(ui: &AppWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -1617,6 +1621,10 @@ pub fn apply_gallery(ui: &GalleryWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -2452,6 +2460,10 @@ pub fn apply_player(ui: &PlayerWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -3287,6 +3299,10 @@ pub fn apply_pip(ui: &PipWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -4122,6 +4138,10 @@ pub fn apply_library(ui: &LibraryWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -4957,6 +4977,10 @@ pub fn apply_settings(ui: &SettingsWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -5792,6 +5816,10 @@ pub fn apply_onboarding(ui: &OnboardingWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -6627,6 +6655,10 @@ pub fn apply_open(ui: &OpenMediaWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());
@@ -7462,6 +7494,10 @@ pub fn apply_customize(ui: &CustomizeWindow, language: Language) {
     strings.set_s_open_capture_fps(i18n::translate(language, "open.capture.fps").into());
     strings.set_s_open_capture_default(i18n::translate(language, "open.capture.default").into());
     strings.set_s_open_capture_hint(i18n::translate(language, "open.capture.hint").into());
+    strings.set_s_open_capture_cameras(i18n::translate(language, "open.capture.cameras").into());
+    strings.set_s_open_capture_microphones(
+        i18n::translate(language, "open.capture.microphones").into(),
+    );
     strings.set_s_open_clipboard_empty(i18n::translate(language, "open.clipboard.empty").into());
     strings.set_s_open_recent_empty(i18n::translate(language, "open.recent.empty").into());
     strings.set_s_open_destination(i18n::translate(language, "open.destination").into());

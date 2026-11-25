@@ -212,6 +212,132 @@ pub fn clipboard_text() -> Option<String> {
     }
 }
 
+/// Friendly names of the capture devices DirectShow currently exposes, split by kind.
+///
+/// These are the exact names libVLC's `dshow` module accepts for `dshow-vdev` / `dshow-adev`,
+/// because both read the same `FriendlyName` property from the same device categories. Empty
+/// lists are honest: they mean Windows reported no device of that kind, not that enumeration
+/// failed silently. The Open dialog still lets a name be typed for either field.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CaptureDevices {
+    pub video: Vec<String>,
+    pub audio: Vec<String>,
+}
+
+impl CaptureDevices {
+    pub fn is_empty(&self) -> bool {
+        self.video.is_empty() && self.audio.is_empty()
+    }
+}
+
+/// Enumerate video and audio capture devices through the DirectShow system device
+/// enumerator. The call initialises and tears down its own COM apartment, so it is safe to
+/// call from any thread at any time.
+#[cfg(windows)]
+pub fn enumerate_capture_devices() -> CaptureDevices {
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+
+    /// `CLSID_VideoInputDeviceCategory`.
+    const VIDEO_CATEGORY: windows::core::GUID =
+        windows::core::GUID::from_u128(0x860bb310_5d01_11d0_bd3b_00a0c911ce86);
+    /// `CLSID_AudioInputDeviceCategory`.
+    const AUDIO_CATEGORY: windows::core::GUID =
+        windows::core::GUID::from_u128(0x33d9a762_90c8_11d0_bd43_00a0c911ce86);
+
+    let mut out = CaptureDevices::default();
+    // SAFETY: COM is initialised on this thread and released before returning. Every call
+    // below is a documented shell/com entry point; the enumerator and moniker handles are
+    // released by RAII, and the VARIANT is cleared explicitly after each read.
+    unsafe {
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let owned = hr.is_ok();
+        // A failure here (for example an apartment already on a different model) does not
+        // make the call unsafe — COM is still initialised — so we still attempt enumeration.
+        out.video = collect_devices(&VIDEO_CATEGORY);
+        out.audio = collect_devices(&AUDIO_CATEGORY);
+        if owned {
+            CoUninitialize();
+        }
+    }
+    out
+}
+
+/// Read the `FriendlyName` of every moniker in one DirectShow device category.
+///
+/// Returns only names Windows actually reported; duplicates are collapsed and blank names
+/// are dropped. Any COM failure is treated as "no device in this category" so the caller
+/// never sees a fabricated entry or a panic.
+#[cfg(windows)]
+unsafe fn collect_devices(category: &windows::core::GUID) -> Vec<String> {
+    use windows::core::{w, GUID};
+    use windows::Win32::Media::DirectShow::ICreateDevEnum;
+    use windows::Win32::System::Com::StructuredStorage::IPropertyBag;
+    use windows::Win32::System::Com::{CoCreateInstance, IEnumMoniker, IMoniker, CLSCTX_ALL};
+    use windows::Win32::System::Variant::{VariantClear, VARIANT, VT_BSTR};
+
+    /// `CLSID_SystemDeviceEnum`.
+    const SYSTEM_DEVICE_ENUM: GUID = GUID::from_u128(0x62be5d10_60eb_11d0_bd3b_00a0c911ce86);
+
+    let mut out = Vec::new();
+    let Ok(denum) = CoCreateInstance::<_, ICreateDevEnum>(&SYSTEM_DEVICE_ENUM, None, CLSCTX_ALL)
+    else {
+        return out;
+    };
+
+    let mut monikers: Option<IEnumMoniker> = None;
+    if denum
+        .CreateClassEnumerator(category, &mut monikers, 0)
+        .is_err()
+    {
+        return out;
+    }
+    let Some(monikers) = monikers else {
+        return out;
+    };
+
+    loop {
+        let mut moniker: Option<IMoniker> = None;
+        let mut fetched = 0u32;
+        let status = monikers.Next(std::slice::from_mut(&mut moniker), Some(&mut fetched));
+        if status.is_err() || fetched == 0 {
+            break;
+        }
+        let Some(moniker) = moniker else {
+            break;
+        };
+        let Ok(bag) = moniker.BindToStorage::<_, _, IPropertyBag>(None, None) else {
+            continue;
+        };
+
+        let mut variant = VARIANT::default();
+        if bag.Read(w!("FriendlyName"), &mut variant, None).is_ok() {
+            // SAFETY: `Read` initialised `variant`; a VT_BSTR discriminant guarantees the
+            // union's `bstrVal` member is the live one. We read it before `VariantClear`.
+            let name = unsafe {
+                let fields = &*variant.Anonymous.Anonymous;
+                if fields.vt == VT_BSTR {
+                    Some(fields.Anonymous.bstrVal.to_string())
+                } else {
+                    None
+                }
+            };
+            if let Some(name) = name {
+                let trimmed = name.trim();
+                if !trimmed.is_empty() && !out.iter().any(|existing: &String| existing == trimmed) {
+                    out.push(trimmed.to_string());
+                }
+            }
+        }
+        let _ = VariantClear(&mut variant);
+    }
+    out
+}
+
+#[cfg(not(windows))]
+pub fn enumerate_capture_devices() -> CaptureDevices {
+    CaptureDevices::default()
+}
+
 #[cfg(not(windows))]
 pub fn pick_files(_title: &str, _label: &str, _extensions: &[&str]) -> Vec<std::path::PathBuf> {
     Vec::new()
@@ -284,5 +410,29 @@ mod tests {
     #[test]
     fn pid_zero_is_never_alive() {
         assert!(!super::process_alive(0));
+    }
+
+    #[test]
+    fn capture_enumeration_is_total_and_repeatable() {
+        // The host may have no capture device at all; the call must still be total, must not
+        // panic, and must return the same shape on a second call.
+        let first = super::enumerate_capture_devices();
+        let second = super::enumerate_capture_devices();
+        assert_eq!(first, second);
+        for name in first.video.iter().chain(first.audio.iter()) {
+            assert!(!name.trim().is_empty(), "device names must be non-blank");
+        }
+        // Within each category, names are unique.
+        for group in [&first.video, &first.audio] {
+            let mut seen = std::collections::HashSet::new();
+            for name in group {
+                assert!(seen.insert(name), "duplicate device name: {name}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_capture_devices_reports_empty() {
+        assert!(super::CaptureDevices::default().is_empty());
     }
 }

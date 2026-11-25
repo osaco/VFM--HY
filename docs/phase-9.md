@@ -3,8 +3,9 @@
 Status: **partly complete**. One dialog covers every way media enters the player — file,
 folder, network stream, capture device, clipboard, recents — plus conversion and streaming
 from the current file. Native Windows pickers replace the placeholder "open Explorer" button,
-including the settings folder fields. Capture enumeration, exact transcode progress and a
-separate-client RTSP test remain open (see Known issues).
+including the settings folder fields. Capture devices are now enumerated from DirectShow and
+shown as real names; exact transcode progress and a separate-client RTSP test remain open
+(see Known issues).
 
 ## What was done
 
@@ -51,6 +52,21 @@ separate-client RTSP test remain open (see Known issues).
 * Recent media is filled from `LibraryStore::recent_entries`, so the panel and the library
   agree on what "recent" means.
 
+### Capture enumeration (`crates/platform`)
+
+* `enumerate_capture_devices()` asks the DirectShow system device enumerator
+  (`CLSID_SystemDeviceEnum`) for the video and audio input categories
+  (`CLSID_VideoInputDeviceCategory`, `CLSID_AudioInputDeviceCategory`), reads each moniker's
+  `FriendlyName` through `IPropertyBag`, and returns the names grouped by kind.
+* Those are the same names libVLC's `dshow` module accepts for `dshow-vdev` / `dshow-adev`, so a
+  picked name is fed straight into the existing `CaptureSpec` chain. Blank names and duplicates
+  are dropped; any COM failure yields an empty list rather than a fabricated entry.
+* The capture panel shows a **Cameras** and/or **Microphones** list only when that category has
+  real devices; clicking a row fills the matching typed field and updates the dialog state.
+  When no device is reported, the panel keeps the typed fields and the guidance text.
+* The call is total and repeatable, covered by two tests in `vfm-platform` (it must not panic
+  and must return the same result twice).
+
 ### Conversion and streaming (`crates/app/src/main.rs`)
 
 * A side `MediaPlayer` owns the transcode, with `vout=dummy`/`aout=dummy` so no second video
@@ -88,7 +104,7 @@ cargo build --release -p vfm-app
 | generator checks | current |
 | `cargo fmt` | clean |
 | `cargo clippy -D warnings` | clean |
-| `cargo test` | **218 passed** at the end of the phase — 74 app, 133 core, 1 platform, 10 wrapper |
+| `cargo test` | **262 passed** after the capture-enumeration increment — 86 app, 160 core, 6 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 
 ## Screenshots
@@ -99,6 +115,9 @@ cargo build --release -p vfm-app
 | `docs/compare/phase-9-open-network-dark-en.png` | Network panel with a typed address |
 | `docs/compare/phase-9-open-convert-dark-en.png` | Convert panel: destination, preset chips, progress |
 | `docs/compare/phase-9-open-recent-dark-ar.png` | Arabic RTL, Recent media list |
+| `docs/compare/phase-9-open-capture-devices-dark-en.png` | Capture panel listing two real microphones detected by DirectShow |
+| `docs/compare/phase-9-open-capture-clicked.png` | Same panel after clicking the first microphone row: the Audio device field is filled |
+| `docs/compare/phase-9-open-capture-shipped.png` | The extracted portable archive renders the same real device list, proving enumeration works outside the build tree |
 
 ## Run commands
 
@@ -110,8 +129,10 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
 
 ## Known issues and deviations
 
-1. Capture devices are typed, not enumerated: there is no DirectShow device list yet, so the
-   panel defaults to the system device and accepts a name. Enumeration is the next step.
+1. Capture devices are enumerated once at launch. A camera or microphone plugged in afterwards
+   is not listed until the app restarts; the typed field still accepts its name in the meantime.
+   The device list reflects what Windows reports, so a host with no camera shows only the
+   Microphones list (or no list at all).
 2. Conversion progress is time-based; libVLC exposes no transcode-percentage counter, so the
    bar is an estimate that can stall near the end on very fast presets.
 3. Streaming uses the preset's real access output: HTTP presets serve over `access=http`; the

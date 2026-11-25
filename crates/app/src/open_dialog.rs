@@ -249,6 +249,24 @@ fn parse_size(text: &str) -> (u32, u32) {
     (width, height)
 }
 
+/// Publish the capture devices Windows actually reported into the capture panel.
+///
+/// Empty lists stay empty on purpose: the panel hides the picker and the typed fields remain
+/// the fallback. No placeholder name is ever invented.
+pub fn push_devices(win: &OpenMediaWindow, devices: &vfm_platform::CaptureDevices) {
+    let to_model = |names: &[String]| -> ModelRc<SharedString> {
+        ModelRc::from(std::rc::Rc::new(VecModel::from(
+            names
+                .iter()
+                .cloned()
+                .map(SharedString::from)
+                .collect::<Vec<_>>(),
+        )))
+    };
+    win.set_capture_video_devices(to_model(&devices.video));
+    win.set_capture_audio_devices(to_model(&devices.audio));
+}
+
 /// Push the whole state into the window.
 pub fn push(win: &OpenMediaWindow, state: &OpenDialogState, language: Language) {
     use crate::i18n;

@@ -30,7 +30,7 @@ cargo test --workspace
 cargo build --release -p vfm-app
 ```
 
-Expected counts on the 2026-11-25 baseline: **86 app + 160 core + 4 platform + 10 wrapper + 0 doc-test failures** (260 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
+Expected counts after the capture-enumeration increment: **86 app + 160 core + 6 platform + 10 wrapper + 0 doc-test failures** (262 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
 
 ## 3. Headless engine acceptance (two files, resume, persistence)
 

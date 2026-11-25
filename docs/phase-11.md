@@ -120,7 +120,8 @@ These are real gaps, not polish items. They are the honest remainder of the phas
    honoured.
 4. **4K GPU path.** Playback is CPU-decoded through libVLC's default output; a 4K GPU path was
    never measured on this host.
-5. **Capture devices.** Typed, not enumerated (Phase 9 note).
+5. **Capture devices.** Enumerated from DirectShow on the capture panel; the typed field remains
+   for a device that was not present when the app launched.
 6. **Display transforms and previews.** The subtitle outline width, rotation/flip and the
    headless seek-thumbnail grabber are now wired to the rendered frame (proof in `docs/compare/`).
 7. **Branding.** Replaced the placeholder cone with an original VFM monogram

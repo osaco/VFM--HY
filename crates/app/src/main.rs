@@ -3542,6 +3542,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         strings_ui::apply_open(&open_win, language);
         open_dialog::push(&open_win, &open_state.borrow(), language);
+        // Real DirectShow devices only: the panel hides the picker when Windows reports none,
+        // and the typed fields remain available in either case.
+        open_dialog::push_devices(&open_win, &vfm_platform::enumerate_capture_devices());
         open_dialog::status(&open_win, language, "open.status.ready", false);
         if let Ok(db) = LibraryStore::open(&data_dir.join("library.sqlite")) {
             let entries = db.recent_entries(24).unwrap_or_default();

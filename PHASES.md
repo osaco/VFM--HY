@@ -22,7 +22,7 @@ list the real gaps.
 | 6 — Sidebar & presets | Implemented | Rotation/flip change the rendered frame; verified on screen in `docs/compare/transform-*.png` |
 | 7 — Advanced | Implemented | Embedded album art is not extracted; music mode uses a generated card |
 | 8 — Settings/hotkeys/a11y | Implemented | Windows high-contrast mode is not honoured |
-| 9 — Media dialogs | Implemented | Capture devices are typed, not enumerated; conversion progress is estimated; RTSP serving is not offered |
+| 9 — Media dialogs | Implemented | Capture devices are enumerated from DirectShow, with the typed field kept for anything not present at launch; conversion progress is estimated; RTSP serving is not offered |
 | 10 — Layout customisation | Partly implemented | The player applies which tail buttons exist, not their full order |
 | 11 — Hardening/release | Portable bundle verified 7/7 | DPI 125/150/200 %, multi-monitor captures, installer signing remain open |
 
