@@ -1403,6 +1403,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => {}
                 }
                 presets_ui::refresh_labels(&mut state);
+                store_video_transform(&state);
                 u.set_sidebar_state(state);
             });
         }
@@ -1444,6 +1445,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     _ => {}
                 }
                 presets_ui::refresh_labels(&mut state);
+                store_video_transform(&state);
                 u.set_sidebar_state(state);
             });
         }
@@ -1501,6 +1503,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(preset) = presets.get(index.max(0) as usize) {
                             presets_ui::apply_to_player(&p, &sc, &preset.payload);
                             presets_ui::apply_payload_to_state(&mut state, &preset.payload);
+                            store_video_transform(&state);
                             state.active_preset_index = index;
                             state.preset_name = preset.name.clone().into();
                             state.preset_scope_label =
@@ -1907,22 +1910,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // buffer instead of detaching a reused buffer (`make_mut_slice` had
                         // to memcpy 8 MB again whenever Slint still held the old image).
                         let mut frame = None;
+                        // Rotation and mirroring change the pixels, so they are applied while
+                        // the frame is copied. The cost is one pass over the buffer and only
+                        // when the user actually set a transform.
+                        let transform = video_transform();
+                        let mut out_size = (0u32, 0u32);
                         let uploaded = frames.with_front(|src| {
                             if swizzle {
                                 swizzle_rgba(src);
                             }
-                            frame = Some(Image::from_rgba8(
-                                SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-                                    src,
-                                    frames.width(),
-                                    frames.height(),
-                                ),
-                            ));
+                            let (w, h) = (frames.width(), frames.height());
+                            if transform.is_identity() {
+                                out_size = (w, h);
+                                frame = Some(Image::from_rgba8(
+                                    SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(src, w, h),
+                                ));
+                            } else {
+                                let (ow, oh) = transform.output_size(w, h);
+                                out_size = (ow, oh);
+                                let mut pixels = vec![0u8; (ow * oh * 4) as usize];
+                                transform.apply_into(src, w, h, &mut pixels);
+                                frame = Some(Image::from_rgba8(
+                                    SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+                                        &pixels, ow, oh,
+                                    ),
+                                ));
+                            }
                         });
                         let copy_ms = started.elapsed().as_secs_f32() * 1000.0;
                         if uploaded {
-                            // Keep the stage's shape in step with the file that is playing.
-                            let aspect = f32::from_bits(VIDEO_ASPECT.load(Ordering::Relaxed));
+                            // Keep the stage's shape in step with the file that is playing. A
+                            // quarter turn swaps width and height, so the aspect inverts too.
+                            let source = f32::from_bits(VIDEO_ASPECT.load(Ordering::Relaxed));
+                            let aspect = if source > 0.0 {
+                                if transform.quarters % 2 == 1 {
+                                    1.0 / source
+                                } else {
+                                    source
+                                }
+                            } else if out_size.1 > 0 {
+                                out_size.0 as f32 / out_size.1 as f32
+                            } else {
+                                0.0
+                            };
                             if let Some(frame) = frame {
                                 if let Some(u) = ui_weak.upgrade() {
                                     if (u.get_video_aspect() - aspect).abs() > 0.001 {
@@ -4307,6 +4337,26 @@ fn aspect_bits(width: u32, height: u32) -> u32 {
         return 0.0f32.to_bits();
     }
     (width as f32 / height as f32).to_bits()
+}
+
+/// Rotation and mirroring chosen in the sidebar, packed for the presenter thread:
+/// bits 0-1 clockwise quarter turns, bit 2 horizontal flip, bit 3 vertical flip.
+pub(crate) static VIDEO_TRANSFORM: AtomicU32 = AtomicU32::new(0);
+
+/// Publish the sidebar's rotation/flip so the next presented frame is transformed.
+pub(crate) fn store_video_transform(state: &SidebarState) {
+    let quarters = state.rotation_index.rem_euclid(4) as u32;
+    let bits = quarters | (u32::from(state.flip_h) << 2) | (u32::from(state.flip_v) << 3);
+    VIDEO_TRANSFORM.store(bits, Ordering::Relaxed);
+}
+
+fn video_transform() -> vfm_core::VideoTransform {
+    let bits = VIDEO_TRANSFORM.load(Ordering::Relaxed);
+    vfm_core::VideoTransform {
+        quarters: (bits & 3) as u8,
+        flip_h: bits & 4 != 0,
+        flip_v: bits & 8 != 0,
+    }
 }
 
 /// Swap the media on an existing player. `libvlc_media_player_set_media` retains the media,

@@ -413,6 +413,10 @@ pub fn apply_for_media(
     apply_to_player(player, subtitles, &resolved.payload);
     let mut state = ui.get_sidebar_state();
     apply_payload_to_state(&mut state, &resolved.payload);
+    // Rotation and mirroring are pixel transforms performed by the presenter thread,
+    // not engine settings. Publish them so an auto-applied preset really turns/mirrors
+    // the picture instead of only changing the sidebar read-outs.
+    crate::store_video_transform(&state);
     state.preset_scope_label = s(scope_label(&resolved.scope, language));
     ui.set_sidebar_state(state);
     push_preset_rows(ui, &presets, &resolved.name);

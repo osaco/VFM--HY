@@ -121,6 +121,27 @@ path with non-ASCII characters, and the debug target directory is unusable there
 ("Vedio for me" / "فيديو من أجلي"), restores the window if it was minimised, brings it to
 the front and retries until the frame is not covered by another application.
 
+### Rotation/flip on-screen proof (fresh run, this revision)
+
+A quadrant-coloured clip (`red green / blue yellow`) was generated with ffmpeg and opened with
+three separate `--data-dir` profiles, each holding one auto-applied preset. The stage pixels were
+captured with `tools/capture_window.py`:
+
+| Screenshot | Preset | Stage quadrants (TL / TR / BL / BR) | Result |
+| --- | --- | --- | --- |
+| `docs/compare/transform-id.png` | none (identity) | red / green / blue / yellow | baseline |
+| `docs/compare/transform-rot90.png` | `rotate_degrees = 90` | blue / red / yellow / green | true 90° clockwise turn |
+| `docs/compare/transform-fliph.png` | `flip_horizontal = true` | green / red / yellow / blue | true horizontal mirror |
+
+`docs/compare/transform-shipped-rot90.png` and `transform-shipped-fliph.png` repeat both checks
+against the binary extracted from `dist/VFM-1.0.0-portable.zip` (not the dev build), with the
+shipped `plugins/` tree and no extra libVLC install. The shipped archive also passed the full
+7-check GUI harness afterwards.
+
+The identity path is a straight copy; only non-identity transforms pay for a pixel pass. The
+sidebar rotation selector and both flip toggles publish to the same presenter atomic, and the
+same publish happens when a preset is loaded or auto-applied, so no control is decorative.
+
 ## Run commands
 
 ```powershell
@@ -133,9 +154,11 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
 
 ## Known issues and deviations
 
-1. Rotation and flip controls are persisted in presets but are not applied to libVLC's video
-   output yet; a transform filter/GPU path is needed. Aspect ratio, zoom and the five colour
-   adjustments are applied live.
+1. Rotation and flip now transform the decoded frame before it is uploaded to the stage. The
+   work is done in `crates/core/src/transform.rs` (pure pixel math + unit tests) and published
+   to the presenter thread from the sidebar and from auto-applied presets. Aspect ratio, zoom
+   and the five colour adjustments are applied live by libVLC. The transform costs one extra
+   buffer copy per presented frame and is skipped entirely for the identity case.
 2. Equalizer labels map to built-in libVLC preset indexes; they are friendly names, not a custom
    ten-band editor.
 3. Subtitle outline in the sidebar is stored and shown, while the Slint overlay still draws a

@@ -93,7 +93,7 @@ revision and must not be read as a result for this tree. The binary was also ren
 | `generate_icons.py --check` | current |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --release --workspace --all-targets -- -D warnings` | clean |
-| `cargo test --release --workspace` | **249 passed** — 86 app, 149 core, 4 platform, 10 wrapper |
+| `cargo test --release --workspace` | **259 passed** — 86 app, 159 core, 4 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 | `tools/package.ps1 -SkipBuild` | portable zip written |
 
@@ -121,9 +121,8 @@ These are real gaps, not polish items. They are the honest remainder of the phas
 4. **4K GPU path.** Playback is CPU-decoded through libVLC's default output; a 4K GPU path was
    never measured on this host.
 5. **Capture devices.** Typed, not enumerated (Phase 9 note).
-6. **Rotation/flip and headless seek thumbnails.** The subtitle outline width is now wired to
-   the renderer, but rotation/flip are still stored without transforming the frame, and the
-   seek-thumbnail grabber is still unwired.
+6. **Headless seek thumbnails.** The subtitle outline width and rotation/flip are now wired to
+   the renderer (see the on-screen proof below); the seek-thumbnail grabber is still unwired.
 7. **Branding.** Replaced the placeholder cone with an original VFM monogram
    (`assets/branding/vfm-256.png`, `vfm-512.png`, `vfm.ico`). The EXE still needs the icon
    embedded at link time.

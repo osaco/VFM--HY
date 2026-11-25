@@ -30,7 +30,7 @@ cargo test --workspace
 cargo build --release -p vfm-app
 ```
 
-Expected counts on the 2026-11-25 baseline: **86 app + 149 core + 4 platform + 10 wrapper + 0 doc-test failures** (249 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
+Expected counts on the 2026-11-25 baseline: **86 app + 159 core + 4 platform + 10 wrapper + 0 doc-test failures** (259 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
 
 ## 3. Headless engine acceptance (two files, resume, persistence)
 
@@ -182,7 +182,7 @@ Theme and language come from `.\testdata\phase3-run\settings.toml`
 | 4 | Relative vs exact size | Toggle the size mode | Slider switches between `×` multiplier and `px` | Ready |
 | 5 | Audio delay & EQ | Drag delay; choose an equalizer label | `libvlc` delay changes immediately; EQ preset applies | Ready |
 | 6 | Video adjustments | Drag brightness/contrast/saturation/hue/gamma/zoom | Image changes live; preview shows the current frame | Ready |
-| 7 | Aspect / rotation / flip | Choose aspect and rotation; toggle flips | Aspect applies to libVLC; rotation/flip stored in the preset | Partial (rotation/flip are stored, not GPU-applied yet) |
+| 7 | Aspect / rotation / flip | Choose aspect and rotation; toggle flips | Aspect applies to libVLC; rotation/flip transform the rendered frame and persist in presets | Ready (on-screen proof in `docs/compare/transform-*.png`) |
 | 8 | Save preset | Name a preset on a show folder, click Save | Row appears with folder scope; payload persisted to SQLite | Ready |
 | 9 | Auto-apply next episode | Play another episode from the same folder | Saved subtitle delay/style and audio/video settings apply automatically | Ready |
 | 10 | Load / rename / delete | Double-click or Apply, rename, delete rows | State updates and survives restart with the same `--data-dir` | Ready |

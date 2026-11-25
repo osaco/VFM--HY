@@ -161,5 +161,5 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
    per-band editor UI yet.
 5. The shortcut capture accepts modifier combinations only; bare keys that the OS reserves
    (e.g. `F12`) are passed through and never reach the player.
-6. Rotation/flip, the variable subtitle outline, the headless seek-thumbnail grabber, native
-   file pickers, branding and the 4K GPU path remain open from earlier phases.
+6. The headless seek-thumbnail grabber, native file pickers and the 4K GPU path remain open from
+   earlier phases. Rotation/flip, the variable subtitle outline and branding are now applied.

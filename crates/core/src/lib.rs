@@ -22,6 +22,7 @@ pub mod store;
 pub mod subtitles;
 pub mod telemetry;
 pub mod time;
+pub mod transform;
 pub mod waveform;
 
 pub use bookmarks::{
@@ -72,6 +73,7 @@ pub use subtitles::{
 };
 pub use telemetry::{TelemetryAccumulator, TelemetrySnapshot};
 pub use time::{format_timecode, format_timecode_long, parse_timecode};
+pub use transform::VideoTransform;
 pub use waveform::{
     analyse as analyse_waveform, downsample as downsample_waveform, Waveform, WaveformCache,
     WaveformError, DEFAULT_BUCKETS as DEFAULT_WAVEFORM_BUCKETS,
