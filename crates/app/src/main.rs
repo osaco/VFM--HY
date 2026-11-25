@@ -1,9 +1,9 @@
 // deny (not forbid): Slint's generated vtable code carries #[allow(unsafe_code)] internally.
 #![deny(unsafe_code)]
 
-//! Vedio for me (VFM) — Phase 0 pipeline spike.
-//! Proves: libVLC 3.0.x runtime loading -> RV32/RGBA callback double-buffer -> Slint
-//! Image with a composited HUD on top (no HWND airspace), plus a --bench telemetry harness.
+//! Vedio for me (VFM) — a Windows media player.
+//! libVLC 3.0.x runtime loading -> RGBA/RV32 callback double-buffer -> Slint Image with a
+//! composited HUD on top (no HWND airspace), plus the `--bench` telemetry harness.
 
 use clap::Parser;
 use slint::{
@@ -45,8 +45,8 @@ slint::include_modules!();
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "vfm-spike",
-    about = "VFM Phase 0 libVLC + Slint video pipeline spike"
+    name = "VFM",
+    about = "VFM — a Windows media player built on libVLC and Slint"
 )]
 struct Args {
     /// Local media files or URLs to enqueue (open-with passes several).
@@ -131,6 +131,31 @@ fn opens_library_by_default(args: &Args) -> bool {
         && !args.associate
         && !args.unassociate
         && !args.gallery
+}
+
+/// Rebuild the audio/subtitle popovers from libVLC's live track descriptions.
+///
+/// This is the only place track names are produced: the list length and ids come from the
+/// engine, so a file with no subtitle track shows an empty list instead of an invented one.
+fn refresh_track_models(
+    ui: &PlayerWindow,
+    player: &MediaPlayer,
+    audio: &Mutex<subtitles_ui::TrackList>,
+    subtitles: &Mutex<subtitles_ui::TrackList>,
+) {
+    let a = subtitles_ui::live_tracks(
+        &player.audio_track_descriptions(),
+        "Audio",
+        player.audio_track(),
+    );
+    let s = subtitles_ui::live_tracks(
+        &player.subtitle_track_descriptions(),
+        "Sub",
+        player.subtitle_track(),
+    );
+    *audio.lock().unwrap() = a.clone();
+    *subtitles.lock().unwrap() = s.clone();
+    subtitles_ui::push_track_names(ui, &a, &s);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -366,13 +391,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.set_sidebar_state(presets_ui::default_state());
     presets_ui::push_options(&ui, startup_language);
 
+    // Live track lists shared by the popover callbacks and the ticker. Keeping the libVLC ids
+    // beside the display names means a popover row selects the real track even when ids are
+    // sparse (a container may number tracks 1, 3, 7 rather than 0, 1, 2).
+    let audio_track_list: Arc<Mutex<subtitles_ui::TrackList>> =
+        Arc::new(Mutex::new(subtitles_ui::TrackList::default()));
+    let subtitle_track_list: Arc<Mutex<subtitles_ui::TrackList>> =
+        Arc::new(Mutex::new(subtitles_ui::TrackList::default()));
+
     // Audio output devices: enumerate once in the background (the WASAPI enum can block a
     // moment) and feed the sidebar dropdown. Index 0 is always "System default".
-    let audio_devices: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let audio_devices: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     {
         let player = Arc::clone(&player);
         let ui_w = ui.as_weak();
-        let devices = Rc::clone(&audio_devices);
+        let devices = Arc::clone(&audio_devices);
         std::thread::Builder::new()
             .name("vfm-audiodev".into())
             .spawn(move || {
@@ -381,7 +414,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let names: Vec<slint::SharedString> =
                     list.iter().map(|d| d.name.clone().into()).collect();
                 let _ = slint::invoke_from_event_loop(move || {
-                    *devices.borrow_mut() = ids;
+                    *devices.lock().unwrap() = ids;
                     if let Some(u) = ui_w.upgrade() {
                         let mut options = vec![slint::SharedString::from(i18n::translate(
                             i18n::ui_language(),
@@ -1360,7 +1393,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let ui_w = ui.as_weak();
             let p = Arc::clone(&player);
-            let audio_devices = Rc::clone(&audio_devices);
+            let audio_devices = Arc::clone(&audio_devices);
             ui.on_sidebar_option_changed(move |key, index| {
                 let Some(u) = ui_w.upgrade() else { return };
                 let mut state = u.get_sidebar_state();
@@ -1376,7 +1409,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if index <= 0 {
                             p.set_audio_output_device(None);
                         } else {
-                            let id = audio_devices.borrow().get(index as usize - 1).cloned();
+                            let id = audio_devices
+                                .lock()
+                                .unwrap()
+                                .get(index as usize - 1)
+                                .cloned();
                             if let Some(id) = id {
                                 p.set_audio_output_device(Some(&id));
                             }
@@ -1686,16 +1723,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             let ui_w = ui.as_weak();
             let p = Arc::clone(&player);
-            ui.on_select_audio_track(move |id| {
-                p.set_audio_track(id);
+            let al = Arc::clone(&audio_track_list);
+            let sl = Arc::clone(&subtitle_track_list);
+            ui.on_select_audio_track(move |row| {
+                if let Some(id) = subtitles_ui::track_id_at(&al.lock().unwrap(), row) {
+                    p.set_audio_track(id);
+                }
                 if let Some(u) = ui_w.upgrade() {
-                    let (names, current) =
-                        subtitles_ui::track_names("Audio", p.audio_track_count(), p.audio_track());
-                    subtitles_ui::push_track_names(
-                        &u,
-                        (names, current),
-                        (Vec::new(), u.get_subtitle_track_current()),
-                    );
+                    refresh_track_models(&u, &p, &al, &sl);
                 }
             });
         }
@@ -1703,21 +1738,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let ui_w = ui.as_weak();
             let p = Arc::clone(&player);
             let sc = Arc::clone(&subtitles);
-            ui.on_select_subtitle_track(move |id| {
+            let al = Arc::clone(&audio_track_list);
+            let sl = Arc::clone(&subtitle_track_list);
+            ui.on_select_subtitle_track(move |row| {
+                let Some(id) = subtitles_ui::track_id_at(&sl.lock().unwrap(), row) else {
+                    return;
+                };
                 p.set_subtitle_track(id);
                 // When libVLC renders the track itself, disable our overlay to avoid doubles.
                 sc.lock().unwrap().session.enabled = id < 0;
                 if let Some(u) = ui_w.upgrade() {
-                    let (names, current) = subtitles_ui::track_names(
-                        "Sub",
-                        p.subtitle_track_count(),
-                        p.subtitle_track(),
-                    );
-                    subtitles_ui::push_track_names(
-                        &u,
-                        (Vec::new(), u.get_audio_track_current()),
-                        (names, current),
-                    );
+                    refresh_track_models(&u, &p, &al, &sl);
                 }
             });
         }
@@ -1743,20 +1774,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
         }
-        // Populate initial track names from the player.
-        {
-            let (a_names, a_cur) = subtitles_ui::track_names(
-                "Audio",
-                player.audio_track_count(),
-                player.audio_track(),
-            );
-            let (s_names, s_cur) = subtitles_ui::track_names(
-                "Sub",
-                player.subtitle_track_count(),
-                player.subtitle_track(),
-            );
-            subtitles_ui::push_track_names(&ui, (a_names, a_cur), (s_names, s_cur));
-        }
+        // Populate initial track names from libVLC's own track descriptions.
+        refresh_track_models(&ui, &player, &audio_track_list, &subtitle_track_list);
     }
     {
         let ui_weak = ui.as_weak();
@@ -1812,9 +1831,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut q = queue.lock().unwrap();
                 media
                     .into_iter()
-                    .map(|path| {
-                        q.enqueue(MediaItem::new(&path));
-                        path
+                    .inspect(|path| {
+                        q.enqueue(MediaItem::new(path));
                     })
                     .collect()
             };
@@ -1995,6 +2013,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let preset_db = db_path.clone();
         let wave_dir = data_dir.join("waveforms");
         let resume_min_remaining = settings.get().resume_min_remaining_ms;
+        let al = Arc::clone(&audio_track_list);
+        let sl = Arc::clone(&subtitle_track_list);
         std::thread::Builder::new()
             .name("vfm-telemetry".into())
             .spawn(move || {
@@ -2065,6 +2085,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 break 'timeline;
                             }
                             let chapters = p.chapters();
+                            // Track lists are read from the live player after the demuxer has
+                            // exposed them, so opening a new file replaces the previous
+                            // file's tracks instead of leaving stale names in the popovers.
+                            let a_tracks = subtitles_ui::live_tracks(
+                                &p.audio_track_descriptions(),
+                                "Audio",
+                                p.audio_track(),
+                            );
+                            let s_tracks = subtitles_ui::live_tracks(
+                                &p.subtitle_track_descriptions(),
+                                "Sub",
+                                p.subtitle_track(),
+                            );
                             let bookmarks = open_bookmarks(&preset_db, &open_now);
                             let meta = instance_arc.media_from_path(&open_now).ok().map(|m| {
                                 // `metadata()` and `tracks()` both read the preparse result,
@@ -2130,6 +2163,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     )
                                 })
                                 .unwrap_or_default();
+                            let al_for_ui = Arc::clone(&al);
+                            let sl_for_ui = Arc::clone(&sl);
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(u) = ui_weak_tl.upgrade() {
                                     timeline_ui::push_chapter_rows(&u, chapter_rows);
@@ -2143,6 +2178,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     u.set_music_mode(audio_only);
                                     u.set_music_title(music_title.into());
                                     u.set_music_subtitle(music_sub.into());
+                                    *al_for_ui.lock().unwrap() = a_tracks.clone();
+                                    *sl_for_ui.lock().unwrap() = s_tracks.clone();
+                                    subtitles_ui::push_track_names(&u, &a_tracks, &s_tracks);
                                     if resume_at.is_some() {
                                         // The playhead is parked at the saved point; wait
                                         // for the answer instead of silently resuming.
@@ -2205,6 +2243,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 u.set_subtitle_outline_color(slint::Color::from_rgb_u8(
                                     o.0, o.1, o.2,
                                 ));
+                                u.set_subtitle_outline_width(cue.style.outline.max(0.0));
                                 u.set_subtitle_position(cue.style.position);
                             } else {
                                 u.set_subtitle_text("".into());
@@ -2886,12 +2925,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         let now = p.time_ms().max(0);
                         let mut ab = AB_LOOP.lock().unwrap();
-                        match (*ab).0 {
+                        match ab.0 {
                             None => {
                                 *ab = (Some(now), None);
                                 hint = "ab.set-a";
                             }
-                            Some(a) if (*ab).1.is_none() => {
+                            Some(a) if ab.1.is_none() => {
                                 // One press on the same spot would loop nothing; nudge B so a
                                 // double press always gives a visible repeat.
                                 let b = if now > a + 400 { now } else { a + 5000 };
@@ -3032,13 +3071,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         layout_ui::status(&customize_win, language, "customize.saved", false);
         customize_win.set_status(String::new().into());
     }
-    // The player renders the same layout model: hidden tail buttons give their slot back.
+    // The player renders the trailing cluster from the saved layout: only the four controls
+    // the shipped bar can draw take a slot, but their order is the user's.
     fn apply_bar_layout(ui: &PlayerWindow, layout: &vfm_core::layout::Layout) {
         use vfm_core::layout::ControlId;
-        ui.set_bar_audio(layout.contains(ControlId::Audio));
-        ui.set_bar_subtitles(layout.contains(ControlId::Subtitles));
-        ui.set_bar_settings(layout.contains(ControlId::Settings));
-        ui.set_bar_queue(layout.contains(ControlId::Playlist));
+        let known = [
+            ControlId::Audio,
+            ControlId::Subtitles,
+            ControlId::Settings,
+            ControlId::Playlist,
+        ];
+        let (rows, count) = layout.trailing_slots(&known);
+        let slot = |control: ControlId| {
+            rows.iter()
+                .find(|(candidate, _)| *candidate == control)
+                .map(|(_, slot)| *slot)
+                .unwrap_or(-1)
+        };
+        ui.set_bar_audio_slot(slot(ControlId::Audio));
+        ui.set_bar_subtitle_slot(slot(ControlId::Subtitles));
+        ui.set_bar_settings_slot(slot(ControlId::Settings));
+        ui.set_bar_queue_slot(slot(ControlId::Playlist));
+        ui.set_bar_tail_count(count);
     }
     apply_bar_layout(&ui, &layout_state.borrow().layout);
 
@@ -4358,38 +4412,38 @@ mod cli_tests {
 
     #[test]
     fn association_flags_do_not_require_media() {
-        let args = Args::try_parse_from(["vfm-spike", "--associate"]).unwrap();
+        let args = Args::try_parse_from(["VFM", "--associate"]).unwrap();
         assert!(args.associate);
         assert!(args.media.is_empty());
 
-        let args = Args::try_parse_from(["vfm-spike", "--unassociate"]).unwrap();
+        let args = Args::try_parse_from(["VFM", "--unassociate"]).unwrap();
         assert!(args.unassociate);
         assert!(args.media.is_empty());
     }
 
     #[test]
     fn library_flag_does_not_require_media() {
-        let args = Args::try_parse_from(["vfm-spike", "--library"]).unwrap();
+        let args = Args::try_parse_from(["VFM", "--library"]).unwrap();
         assert!(args.library);
         assert!(args.media.is_empty());
     }
 
     #[test]
     fn bare_launch_opens_the_library() {
-        let args = Args::try_parse_from(["vfm-spike"]).unwrap();
+        let args = Args::try_parse_from(["VFM"]).unwrap();
         assert!(opens_library_by_default(&args));
     }
 
     #[test]
     fn an_explicit_destination_suppresses_the_default_library() {
         for argv in [
-            vec!["vfm-spike", "movie.mkv"],
-            vec!["vfm-spike", "--settings"],
-            vec!["vfm-spike", "--hotkeys"],
-            vec!["vfm-spike", "--onboarding"],
-            vec!["vfm-spike", "--customize"],
-            vec!["vfm-spike", "--open", "0"],
-            vec!["vfm-spike", "--library"],
+            vec!["VFM", "movie.mkv"],
+            vec!["VFM", "--settings"],
+            vec!["VFM", "--hotkeys"],
+            vec!["VFM", "--onboarding"],
+            vec!["VFM", "--customize"],
+            vec!["VFM", "--open", "0"],
+            vec!["VFM", "--library"],
         ] {
             let args = Args::try_parse_from(&argv).unwrap();
             assert!(
@@ -4401,7 +4455,7 @@ mod cli_tests {
 
     #[test]
     fn sidebar_flag_selects_a_tab() {
-        let args = Args::try_parse_from(["vfm-spike", "--sidebar", "4"]).unwrap();
+        let args = Args::try_parse_from(["VFM", "--sidebar", "4"]).unwrap();
         assert_eq!(args.sidebar, Some(4));
     }
 
@@ -4418,7 +4472,7 @@ mod cli_tests {
     #[test]
     fn gallery_flags_do_not_require_media() {
         let args = Args::try_parse_from([
-            "vfm-spike",
+            "VFM",
             "--gallery",
             "--gallery-theme",
             "light",

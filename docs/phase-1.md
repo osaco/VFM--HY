@@ -102,7 +102,7 @@ cargo build --release -p vfm-app
 Headless engine test:
 
 ```powershell
-& .\target\release\vfm-spike.exe `
+& .\target\release\VFM.exe `
   .\testdata\1080p60.mp4 .\testdata\sample1080p-b.mp4 `
   --engine-test 3 --width 1920 --height 1080 --chroma rv32 `
   --no-single-instance --data-dir .\testdata\engine-run-check
@@ -111,15 +111,15 @@ Headless engine test:
 GUI spike (video in Slint image, HUD overlaid):
 
 ```powershell
-& .\target\release\vfm-spike.exe .\testdata\1080p60.mp4 `
+& .\target\release\VFM.exe .\testdata\1080p60.mp4 `
   --width 1920 --height 1080 --chroma rv32
 ```
 
 File associations (optional, HKCU only):
 
 ```powershell
-& .\target\release\vfm-spike.exe --associate
-& .\target\release\vfm-spike.exe --unassociate
+& .\target\release\VFM.exe --associate
+& .\target\release\VFM.exe --unassociate
 ```
 
 ## What is left / known issues

@@ -457,7 +457,7 @@ mod tests {
 
     #[test]
     fn every_action_has_a_label() {
-        assert_eq!(Action::all().len(), 35);
+        assert_eq!(Action::all().len(), 40);
         for action in Action::all() {
             assert!(!action.label().is_empty());
         }

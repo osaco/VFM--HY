@@ -171,7 +171,7 @@ This repo already vendors the extracted runtime at `vendor/libvlc/`. Layout expe
 to the compiled binary (or via `LIBVLC_PATH`):
 
 ```
-vfm-spike.exe
+VFM.exe
 vlc/
 ├── libvlc.dll
 ├── libvlccore.dll

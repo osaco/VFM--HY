@@ -142,10 +142,10 @@ settings_ui 5, hotkeys_ui 3, platform 1).
 
 ```powershell
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
-.\target\release\vfm-spike.exe "D:\media\episode.mkv" --no-single-instance
-.\target\release\vfm-spike.exe --settings      # settings only
-.\target\release\vfm-spike.exe --hotkeys       # shortcut dialog only
-.\target\release\vfm-spike.exe --onboarding    # replay the first-run flow
+.\target\release\VFM.exe "D:\media\episode.mkv" --no-single-instance
+.\target\release\VFM.exe --settings      # settings only
+.\target\release\VFM.exe --hotkeys       # shortcut dialog only
+.\target\release\VFM.exe --onboarding    # replay the first-run flow
 ```
 
 ## Known issues and deviations

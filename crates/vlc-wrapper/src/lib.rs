@@ -26,6 +26,14 @@ pub struct AudioDeviceInfo {
     pub name: String,
 }
 
+/// One live audio or subtitle track: the id libVLC uses for selection plus the
+/// display name the demuxer supplied (language or track title, never invented here).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LiveTrack {
+    pub id: i32,
+    pub name: String,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum VlcError {
     #[error("libVLC runtime not found ({0}); set LIBVLC_PATH to a win64 3.0.x directory")]
@@ -439,6 +447,40 @@ fn read_tracks(api: &VlcApi, handle: *mut c_void, parse_if_empty: bool) -> Track
     summary
 }
 
+/// Copy a `libvlc_track_description_t` linked list into owned strings, then release it.
+///
+/// The list is bounded defensively: libVLC builds it from the demuxer's track table, but a
+/// corrupt runtime must not spin the UI thread forever.
+fn read_track_descriptions(api: &VlcApi, head: *mut sys::TrackDescription) -> Vec<LiveTrack> {
+    let mut out = Vec::new();
+    if head.is_null() {
+        return out;
+    }
+    let mut node = head;
+    let mut guard = 0usize;
+    while !node.is_null() && guard < 4096 {
+        guard += 1;
+        // SAFETY: every node in the list libVLC returned is a valid TrackDescription.
+        let entry = unsafe { &*node };
+        let name = if entry.psz_name.is_null() {
+            String::new()
+        } else {
+            // SAFETY: `psz_name` is a NUL-terminated string owned by the node.
+            unsafe { CStr::from_ptr(entry.psz_name) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        out.push(LiveTrack {
+            id: entry.i_id,
+            name,
+        });
+        node = entry.p_next;
+    }
+    // SAFETY: the list came from libVLC and is released exactly once here.
+    unsafe { (api.track_description_list_release)(head) };
+    out
+}
+
 impl Drop for Media {
     fn drop(&mut self) {
         unsafe { (self.api.media_release)(self.handle) };
@@ -744,6 +786,13 @@ impl MediaPlayer {
     pub fn set_audio_track(&self, id: i32) {
         unsafe { (self.api.audio_set_track)(self.handle, id) };
     }
+    /// Live audio tracks with the names libVLC reports. The disabled entry (`id == -1`) is
+    /// included so callers can decide whether to surface a "No audio" choice.
+    pub fn audio_track_descriptions(&self) -> Vec<LiveTrack> {
+        // SAFETY: live player handle; libVLC owns the list until we release it below.
+        let head = unsafe { (self.api.audio_get_track_description)(self.handle) };
+        read_track_descriptions(&self.api, head)
+    }
     pub fn subtitle_track_count(&self) -> i32 {
         unsafe { (self.api.video_get_spu_count)(self.handle) }
     }
@@ -752,6 +801,12 @@ impl MediaPlayer {
     }
     pub fn set_subtitle_track(&self, id: i32) {
         unsafe { (self.api.video_set_spu)(self.handle, id) };
+    }
+    /// Live subtitle tracks with the names libVLC reports.
+    pub fn subtitle_track_descriptions(&self) -> Vec<LiveTrack> {
+        // SAFETY: live player handle; libVLC owns the list until we release it below.
+        let head = unsafe { (self.api.video_get_spu_description)(self.handle) };
+        read_track_descriptions(&self.api, head)
     }
     pub fn video_track_count(&self) -> i32 {
         unsafe { (self.api.video_get_track_count)(self.handle) }

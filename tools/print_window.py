@@ -21,7 +21,7 @@ import time
 from ctypes import wintypes
 
 TITLES = ("Vedio for me", "فيديو من أجلي")
-APP = os.environ.get("VFM_EXE", r"D:\تجاربي\VLC MAINE 2 HY\target\release\vfm-spike.exe")
+APP = os.environ.get("VFM_EXE", r"D:\تجاربي\VLC MAINE 2 HY\target\release\VFM.exe")
 LIBVLC = os.environ.get("LIBVLC_PATH", r"D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc")
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)

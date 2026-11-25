@@ -1,8 +1,23 @@
 # Phase 11 summary — Hardening and release (VFM)
 
-Status: **release candidate**. Crash reporting, packaging, CI and the documentation set are in
-place. This phase is honest about what is *not* finished: the remaining gaps are listed at the
-bottom rather than hidden.
+Status: **release candidate**, with the caveat below. Crash reporting, packaging, CI and the
+documentation set are in place. This phase is honest about what is *not* finished: the
+remaining gaps are listed at the bottom rather than hidden.
+
+## Verified baseline (2026-11-25)
+
+The snapshot supplied for this review did not build. Before re-running any gate:
+
+* `crates/app/src/presets_ui.rs` omitted the new `audio_device_index` field from
+  `default_state()`, so `SidebarState` had no complete initializer.
+* `crates/app/src/main.rs` moved an `Rc<RefCell<Vec<String>>>` into
+  `slint::invoke_from_event_loop`, which requires `Send`; it is now an `Arc<Mutex<Vec<String>>>`.
+* `crates/core/src/hotkeys.rs` asserted 35 actions while `Action::all()` had grown to 40.
+
+After those three fixes the workspace builds and the full suite passes (see the fresh log in
+`docs/baseline-2026-11-25.md`). The earlier “236 passed” figure described a different source
+revision and must not be read as a result for this tree. The binary was also renamed from
+`VFM.exe` to `VFM.exe` so the shipped artifact matches the product name.
 
 ## What was done
 
@@ -19,7 +34,7 @@ bottom rather than hidden.
 ### Packaging (`tools/package.ps1`, `packaging/vfm.iss`, new)
 
 * `package.ps1` builds the release binary and lays out a portable bundle:
-  `vfm-spike.exe`, the libVLC DLLs, the whole `plugins/` tree, the documentation and the
+  `VFM.exe`, the libVLC DLLs, the whole `plugins/` tree, the documentation and the
   licence file, then zips it as `dist/VFM-<version>-portable.zip`.
 * The runtime is copied as **loose files**, never statically linked or bundled into one
   executable — that is what keeps the LGPL obligation satisfiable (see
@@ -66,7 +81,7 @@ bottom rather than hidden.
 | `generate_icons.py --check` | current |
 | `cargo fmt --all -- --check` | clean |
 | `cargo clippy --release --workspace --all-targets -- -D warnings` | clean |
-| `cargo test --release --workspace` | **236 passed** — 80 app, 144 core, 2 platform, 10 wrapper |
+| `cargo test --release --workspace` | **247 passed** — 84 app, 149 core, 4 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 | `tools/package.ps1 -SkipBuild` | portable zip written |
 
@@ -86,15 +101,19 @@ These are real gaps, not polish items. They are the honest remainder of the phas
 
 1. **DPI comparison.** Screenshots were taken at 100 % DPI only. The design tokens are
    DPI-independent, but 125/150/200 % has not been eyeballed screen by screen.
-2. **Control-bar ordering.** Phase 10 stores and previews a custom order; the player applies
-   which tail buttons exist, not their order yet.
+2. **Control-bar ordering.** The four shipped tail buttons now follow the saved order, but the
+   other palette controls (repeat, shuffle, speed, chapters, video, snapshot, pip, fullscreen)
+   are still preview-only.
 3. **High contrast.** The theme has light and dark only; Windows high-contrast mode is not
    honoured.
 4. **4K GPU path.** Playback is CPU-decoded through libVLC's default output; a 4K GPU path was
    never measured on this host.
 5. **Capture devices.** Typed, not enumerated (Phase 9 note).
-6. **Rotation/flip, variable subtitle outline, headless seek thumbnails.** Carried over from
-   earlier phases.
-7. **Branding.** `assets/branding/vfm-256.png` is still the placeholder cone mark.
+6. **Rotation/flip and headless seek thumbnails.** The subtitle outline width is now wired to
+   the renderer, but rotation/flip are still stored without transforming the frame, and the
+   seek-thumbnail grabber is still unwired.
+7. **Branding.** Replaced the placeholder cone with an original VFM monogram
+   (`assets/branding/vfm-256.png`, `vfm-512.png`, `vfm.ico`). The EXE still needs the icon
+   embedded at link time.
 8. **Installer signing.** The Inno Setup output is unsigned; a release build should be signed
    before distribution.

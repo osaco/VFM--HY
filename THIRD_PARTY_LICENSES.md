@@ -37,7 +37,7 @@ the project's own mark.
 libVLC is linked **dynamically** (`libvlc.dll`, `libvlccore.dll`, `plugins/`). Anyone who
 receives a VFM build must be able to replace those files with their own build of libVLC:
 
-* the DLLs and the `plugins/` directory ship as separate files next to `vfm-spike.exe` — they
+* the DLLs and the `plugins/` directory ship as separate files next to `VFM.exe` — they
   are never statically linked or packed into the executable;
 * `LIBVLC_PATH` lets the user point VFM at any other libVLC 3.x runtime;
 * the libVLC source, including any modifications, is available from

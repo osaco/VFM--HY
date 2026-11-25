@@ -28,7 +28,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\vfm-spike.exe
+UninstallDisplayIcon={app}\VFM.exe
 LicenseFile={#SourceDir}\THIRD_PARTY_LICENSES.md
 
 [Languages]
@@ -43,16 +43,16 @@ Name: "associate"; Description: "Associate video and audio files with VFM"; Grou
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\VFM"; Filename: "{app}\vfm-spike.exe"
+Name: "{group}\VFM"; Filename: "{app}\VFM.exe"
 Name: "{group}\{cm:UninstallProgram,VFM}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\VFM"; Filename: "{app}\vfm-spike.exe"; Tasks: desktopicon
+Name: "{autodesktop}\VFM"; Filename: "{app}\VFM.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\vfm-spike.exe"; Parameters: "--associate"; Flags: runhidden; Tasks: associate
-Filename: "{app}\vfm-spike.exe"; Description: "{cm:LaunchProgram,VFM}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\VFM.exe"; Parameters: "--associate"; Flags: runhidden; Tasks: associate
+Filename: "{app}\VFM.exe"; Description: "{cm:LaunchProgram,VFM}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\vfm-spike.exe"; Parameters: "--unassociate"; Flags: runhidden
+Filename: "{app}\VFM.exe"; Parameters: "--unassociate"; Flags: runhidden
 
 [Registry]
 Root: HKCU; Subkey: "Software\VFM"; ValueType: string; ValueName: "InstallDir"; ValueData: "{app}"; Flags: uninsdeletekey

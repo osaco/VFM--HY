@@ -109,9 +109,9 @@ python tools\generate_strings.py
 python tools\generate_icons.py
 
 # Hidden component gallery; equivalent to clicking the toolbar controls
-& .\target\release\vfm-spike.exe --gallery
-& .\target\release\vfm-spike.exe --gallery --gallery-theme light
-& .\target\release\vfm-spike.exe --gallery --gallery-language ar
+& .\target\release\VFM.exe --gallery
+& .\target\release\VFM.exe --gallery --gallery-theme light
+& .\target\release\VFM.exe --gallery --gallery-language ar
 
 # Window captures used above
 ffmpeg -y -f gdigrab -framerate 1 -i title="Component gallery" -frames:v 1 docs\compare\phase-2-gallery-dark-en.png

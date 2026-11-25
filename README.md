@@ -11,7 +11,7 @@ The project is a Rust workspace:
 | `crates/vlc-wrapper` | Safe Rust API over libVLC (`unsafe` isolated here) |
 | `crates/core` | Platform-agnostic logic: settings, library, playlists, queue, subtitles, hotkeys, layout, open-media rules |
 | `crates/platform` | The Win32 calls the UI cannot make itself (theme probe, file pickers, clipboard) |
-| `crates/app` | Slint UI, controllers, and the `vfm-spike` binary |
+| `crates/app` | Slint UI, controllers, and the `VFM` binary |
 
 ## Requirements
 
@@ -25,7 +25,7 @@ The project is a Rust workspace:
 ```powershell
 $env:LIBVLC_PATH = "$PWD\vendor\libvlc"
 cargo build --release -p vfm-app
-.\target\release\vfm-spike.exe "D:\media\episode.mkv"
+.\target\release\VFM.exe "D:\media\episode.mkv"
 ```
 
 Useful flags:

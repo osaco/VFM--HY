@@ -25,22 +25,22 @@ $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 # Either build directory may hold the newest binary (target\release has a stuck lock file on
 # this machine, so builds sometimes land in target2). Pick whichever exe is fresher.
 $exe = @(
-    (Join-Path $root "target\release\vfm-spike.exe"),
-    (Join-Path $root "target2\release\vfm-spike.exe")
+    (Join-Path $root "target\release\VFM.exe"),
+    (Join-Path $root "target2\release\VFM.exe")
 ) | Where-Object { Test-Path $_ } |
     Sort-Object { (Get-Item $_).LastWriteTime } -Descending |
     Select-Object -First 1
 $libvlc = Join-Path $root "vendor\libvlc"
 $icon = Join-Path $root "assets\branding\vfm.ico"
 
-if (-not $exe) { throw "missing target\release\vfm-spike.exe - run: cargo build --release -p vfm-app" }
+if (-not $exe) { throw "missing target\release\VFM.exe - run: cargo build --release -p vfm-app" }
 if (-not (Test-Path (Join-Path $libvlc "libvlc.dll"))) { throw "missing libVLC runtime in vendor\libvlc" }
 if (-not (Test-Path $icon)) { throw "missing $icon" }
 
 Write-Host "Installing VFM to $InstallDir"
 
 # Close a running copy so the executable can be replaced.
-Get-Process -Name "VFM", "vfm-spike" -ErrorAction SilentlyContinue | ForEach-Object {
+Get-Process -Name "VFM" -ErrorAction SilentlyContinue | ForEach-Object {
     Write-Host "  stopping $($_.ProcessName) ($($_.Id))"
     $_ | Stop-Process -Force -ErrorAction SilentlyContinue
 }

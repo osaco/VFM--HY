@@ -1,8 +1,9 @@
 # Phase 10 summary — Layout customization and profiles (VFM)
 
-Status: **complete for review**. The control bar is described by a data model, a customize
-screen edits that model with a live preview, and named profiles save and restore layouts as
-JSON.
+Status: **partly complete**. The control bar is described by a data model, a customize screen
+edits that model with a live preview, and named profiles save and restore layouts as JSON.
+The player now renders the four tail buttons in the saved order (not just their visibility),
+but the other palette controls are still preview-only.
 
 ## What was done
 
@@ -34,9 +35,12 @@ JSON.
 
 ### Player integration (`crates/app/ui/player.slint`, `crates/app/src/main.rs`)
 
-* The tail cluster (`audio`, `subtitles`, `settings`, `queue`) now has `bar-*` flags and the
-  slot chain gives a hidden button's width back, so the remaining buttons stay on the design's
-  42 px pitch instead of leaving a hole.
+* The tail cluster (`audio`, `subtitles`, `settings`, `queue`) is rendered from the saved
+  trailing order: each control receives a slot measured from the right edge
+  (`Layout::trailing_slots`, tested in `core`), so moving a button in the customizer moves the
+  real button. Removing one closes the gap instead of leaving a hole.
+* The default layout now lists exactly the four controls the shipped bar draws, so a fresh
+  install shows the queue and settings buttons instead of hiding them.
 * The layout is persisted in `Settings::layout` and applied at startup and after every edit.
 * The right-click menu gained **Customize controls**; `--customize` opens the window directly.
 
@@ -47,7 +51,7 @@ JSON.
 | generator checks | current |
 | `cargo fmt` | clean |
 | `cargo clippy -D warnings` | clean |
-| `cargo test` | **236 passed** — 80 app, 144 core, 2 platform, 10 wrapper |
+| `cargo test` | **247 passed** — 84 app, 149 core, 4 platform, 10 wrapper |
 | `cargo build --release -p vfm-app` | finished |
 
 ## Screenshots
@@ -60,15 +64,15 @@ JSON.
 ## Run commands
 
 ```powershell
-.\target\release\vfm-spike.exe --customize
+.\target\release\VFM.exe --customize
 ```
 
 ## Known issues and deviations
 
-1. **Ordering is stored and previewed but not yet rendered by the player.** The shipped strip
-   positions its controls with fixed Figma-measured slots; rebuilding it from the model is the
-   remaining step. What the player applies today is *which* tail buttons exist (audio,
-   subtitles, settings, queue), which is the part that changes the strip's geometry safely.
+1. **Only the four shipped tail controls are rendered.** Their order now comes from the saved
+   layout, but the other palette entries (repeat, shuffle, speed, chapters, video, snapshot,
+   pip, fullscreen) still appear only in the preview. A full data-driven strip is the remaining
+   step.
 2. Drag and drop is click-to-add + arrow reordering rather than free dragging with snap guides;
    the model supports either, the interaction is the simpler one.
 3. Profiles store a settings snapshot field but the UI does not edit it yet — profiles are

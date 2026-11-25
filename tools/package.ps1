@@ -20,8 +20,8 @@ if (-not $version) { $version = "0.0.0" }
 $dist = Join-Path $root "dist\VFM-$version"
 # Either build directory may hold the newest binary (see install.ps1).
 $exe = @(
-    (Join-Path $root "target\$Configuration\vfm-spike.exe"),
-    (Join-Path $root "target2\$Configuration\vfm-spike.exe")
+    (Join-Path $root "target\$Configuration\VFM.exe"),
+    (Join-Path $root "target2\$Configuration\VFM.exe")
 ) | Where-Object { Test-Path $_ } |
     Sort-Object { (Get-Item $_).LastWriteTime } -Descending |
     Select-Object -First 1
@@ -39,7 +39,7 @@ if (-not (Test-Path $libvlc)) { throw "missing libVLC runtime in vendor\libvlc" 
 if (Test-Path $dist) { Remove-Item -Recurse -Force $dist }
 New-Item -ItemType Directory -Path $dist | Out-Null
 
-Copy-Item $exe (Join-Path $dist "vfm-spike.exe")
+Copy-Item $exe (Join-Path $dist "VFM.exe")
 
 # Runtime: DLLs plus the whole plugins tree, kept as separate files.
 Copy-Item (Join-Path $libvlc "*.dll") $dist -ErrorAction SilentlyContinue

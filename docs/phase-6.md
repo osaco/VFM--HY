@@ -125,7 +125,7 @@ the front and retries until the frame is not covered by another application.
 
 ```powershell
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
-.\target\release\vfm-spike.exe "D:\media\episode.mkv" --no-single-instance
+.\target\release\VFM.exe "D:\media\episode.mkv" --no-single-instance
 # Ctrl+E opens the sidebar; use the Presets tab to save a folder-scoped preset,
 # then press Next to verify auto-apply on another episode from the same folder.
 # --sidebar 0..4 opens a specific tab at startup (subtitles/audio/video/playback/presets).

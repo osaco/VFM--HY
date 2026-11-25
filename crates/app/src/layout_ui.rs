@@ -277,12 +277,12 @@ mod tests {
             layout: Layout::default(),
             profiles: Vec::new(),
         };
-        ui.remove("pip");
+        ui.remove("audio");
         assert!(ui.save_profile(&db, "Cinema"));
         ui.reset();
-        assert!(ui.layout.contains(ControlId::Pip));
+        assert!(ui.layout.contains(ControlId::Audio));
         assert!(ui.apply_profile(0));
-        assert!(!ui.layout.contains(ControlId::Pip));
+        assert!(!ui.layout.contains(ControlId::Audio));
         assert!(ui.delete_profile(&db, 0));
         assert!(ui.profiles.is_empty());
     }

@@ -94,10 +94,10 @@ Exact run commands:
 ```powershell
 # Library-first
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
-.\target\release\vfm-spike.exe --library --data-dir .\testdata\phase4-run
+.\target\release\VFM.exe --library --data-dir .\testdata\phase4-run
 
 # Player, then Ctrl+L for the library
-.\target\release\vfm-spike.exe .\testdata\sample1080p-b.mp4 --no-single-instance
+.\target\release\VFM.exe .\testdata\sample1080p-b.mp4 --no-single-instance
 ```
 
 ## Known issues and deviations

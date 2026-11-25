@@ -1,12 +1,12 @@
 [package]
 name = "vfm-app"
-description = "Vedio for me (VFM) — Slint desktop shell and Phase 0 video pipeline spike"
+description = "Vedio for me (VFM) — Slint desktop shell and libVLC video pipeline"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "vfm-spike"
+name = "VFM"
 path = "src/main.rs"
 
 [dependencies]

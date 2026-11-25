@@ -1,0 +1,16 @@
+# Rust build output
+/target/
+/target2/
+/target3/
+**/*.rs.bk
+
+# Packaging output
+/dist/
+
+# Local test runs and logs
+/testdata/baseline-*/
+*.log
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db

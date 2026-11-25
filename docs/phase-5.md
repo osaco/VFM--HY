@@ -1,6 +1,7 @@
 # Phase 5 summary — Tracks, seek thumbnails, subtitles (VFM)
 
-Status: **complete for review**. Quality gates green; work stops here pending your acceptance.
+Status: **partly complete**. Subtitles, track selection and the popover UI work; seek-thumbnail
+generation is still not wired (see Known issues).
 
 ## What was done
 
@@ -31,16 +32,19 @@ The phase-4 subtitle parser was extended into a full runtime model:
 
 * **`SubtitleController`** — loads external subtitle files with BOM/encoding detection and
   format dispatch by extension; discovers matching sidecars next to a media file.
-* **`track_names` / `push_track_names`** — build human-readable track lists for the popovers
-  and mark the active track.
-* 4 unit tests.
+* **`live_tracks` / `track_id_at` / `push_track_names`** — build the popover list from libVLC's
+  own `libvlc_audio_get_track_description` / `libvlc_video_get_spu_description` output, keep the
+  real ids beside each row, and map a clicked row back to the id libVLC expects. A file with no
+  subtitle track now shows an empty list instead of an invented "Sub 1" row.
+* 6 unit tests (real names, sparse ids, the Off row, empty list).
 
 ### Player UI (`crates/app/ui/player.slint`)
 
 * **Own subtitle renderer** — a composited `Text` overlay above the video with a four-copy
-  outline, white fill, and per-cue font size/colour/position. libVLC's SPU track is disabled
-  when our renderer is active, so there are never two overlapping subtitles. The overlay has
-  `z: 5` and sits above the video but below the chrome.
+  outline, white fill, and per-cue font size/colour/position. The outline offset is driven by
+  `subtitle-outline-width` (fed from the cue style), so the outline slider changes the actual
+  rendering instead of a stored value. libVLC's SPU track is disabled when our renderer is
+  active, so there are never two overlapping subtitles.
 * **Audio + subtitle popovers** — opened from the control-bar equalizer/subtitles buttons or
   the right-click menu; list each track with the active one accented, plus "Off" and
   "Load subtitles" rows. Escape dismisses and unpins the chrome.
@@ -79,9 +83,9 @@ Exact run commands:
 ```powershell
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
 # auto-discovers Ep.srt next to Ep.mkv
-.\target\release\vfm-spike.exe .\testdata\phase5\Ep.mkv --no-single-instance
+.\target\release\VFM.exe .\testdata\phase5\Ep.mkv --no-single-instance
 # or explicit
-.\target\release\vfm-spike.exe .\testdata\phase5\Ep.mkv --subtitle .\testdata\phase5\Ep.srt
+.\target\release\VFM.exe .\testdata\phase5\Ep.mkv --subtitle .\testdata\phase5\Ep.srt
 ```
 
 ## Known issues and deviations

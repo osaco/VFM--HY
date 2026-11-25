@@ -331,23 +331,32 @@ impl StreamPreset {
 
 /// Build the `:sout=` chain that serves the current media over the network.
 ///
-/// The `dst` uses libVLC's `:port/path` shorthand so the chain works regardless of which
-/// interface the machine ends up listening on.
+/// HTTP presets use libVLC's `dst=:port/path` shorthand so the chain works regardless of which
+/// interface the machine listens on. RTSP needs the `rtp{sdp=rtsp://…}` access output, which
+/// starts a real RTSP server; it must not be advertised as HTTP.
 pub fn stream_sout(preset: &StreamPreset, port: u16, path: &str) -> String {
     let path = path.trim().trim_start_matches('/');
     let path = if path.is_empty() { "stream" } else { path };
-    format!(
-        "#transcode{{vcodec=h264,vb={},acodec=mp4a,ab=128,channels=2,samplerate=44100}}\
-         :std{{access=http,mux={},dst=:{port}/{path}}}",
-        preset.video_bitrate, preset.mux
-    )
+    let transcode = format!(
+        "#transcode{{vcodec=h264,vb={},acodec=mp4a,ab=128,channels=2,samplerate=44100}}",
+        preset.video_bitrate
+    );
+    if preset.id == "rtsp" {
+        format!("{transcode}:rtp{{sdp=rtsp://:{port}/{path}}}")
+    } else {
+        format!(
+            "{transcode}:std{{access=http,mux={},dst=:{port}/{path}}}",
+            preset.mux
+        )
+    }
 }
 
 /// URL a viewer should open for a stream served on `port`/`path`.
-pub fn stream_url(port: u16, path: &str) -> String {
+pub fn stream_url(preset: &StreamPreset, port: u16, path: &str) -> String {
     let path = path.trim().trim_start_matches('/');
     let path = if path.is_empty() { "stream" } else { path };
-    format!("http://<this-pc>:{port}/{path}")
+    let scheme = if preset.id == "rtsp" { "rtsp" } else { "http" };
+    format!("{scheme}://<this-pc>:{port}/{path}")
 }
 
 /// Default destination next to the source, e.g. `movie.mp4` → `movie (converted).mp4`.
@@ -513,7 +522,22 @@ mod tests {
         let sout = stream_sout(preset, 8080, "/live");
         assert!(sout.contains("dst=:8080/live"));
         assert!(sout.contains("mux=ts"));
-        assert_eq!(stream_url(8080, "live"), "http://<this-pc>:8080/live");
+        assert_eq!(
+            stream_url(preset, 8080, "live"),
+            "http://<this-pc>:8080/live"
+        );
+    }
+
+    #[test]
+    fn rtsp_preset_serves_real_rtsp_not_http() {
+        let preset = StreamPreset::by_id("rtsp").unwrap();
+        let sout = stream_sout(preset, 8554, "live");
+        assert!(sout.contains("rtp{sdp=rtsp://:8554/live}"));
+        assert!(!sout.contains("access=http"));
+        assert_eq!(
+            stream_url(preset, 8554, "live"),
+            "rtsp://<this-pc>:8554/live"
+        );
     }
 
     #[test]

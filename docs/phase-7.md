@@ -158,7 +158,7 @@ not used — see `.cargo/config.toml`). Copy `vendor/sqlite/lib/sqlite3.dll` int
 
 ```powershell
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
-.\target\release\vfm-spike.exe "D:\media\episode.mkv" --no-single-instance
+.\target\release\VFM.exe "D:\media\episode.mkv" --no-single-instance
 # --sidebar 3 opens the Playback tab with chapters and bookmarks.
 # Ctrl+B bookmarks the current moment; Ctrl+, / Ctrl+. jump between bookmarks.
 # --subs-search opens the OpenSubtitles dialog directly (used for the screenshot above).

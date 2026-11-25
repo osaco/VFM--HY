@@ -35,7 +35,7 @@ user32 = pw.user32
 gdi32 = pw.gdi32
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-EXE = os.environ.get("VFM_EXE", os.path.join(ROOT, "target", "release", "vfm-spike.exe"))
+EXE = os.environ.get("VFM_EXE", os.path.join(ROOT, "target", "release", "VFM.exe"))
 DATA_DIR = os.environ.get("VFM_DATA_DIR", r"D:\vfm-data")
 PLAYER_TITLES = ("Vedio for me", "فيديو من أجلي")
 LIBRARY_TITLES = ("Library", "المكتبة")

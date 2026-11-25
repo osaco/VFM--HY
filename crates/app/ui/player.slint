@@ -62,6 +62,8 @@ export component PlayerWindow inherits Window {
     // Phase 5 subtitle renderer state (driven from core::SubtitleSession).
     in-out property <string> subtitle-text;
     in-out property <length> subtitle-font-size: 28px;
+    // Outline thickness comes from the active preset/settings instead of a fixed 2px.
+    in-out property <length> subtitle-outline-width: 2px;
     // Settings-driven input behaviour (Phase 8).
     in-out property <bool> osd-enabled: true;
     in-out property <bool> click-pause: true;
@@ -124,17 +126,27 @@ export component PlayerWindow inherits Window {
     // Right-hand cluster anchors, derived from the Figma strip: the queue button hugs the
     // inset, the gear sits 50px in from it, then subtitles/audio step back on a 42px pitch,
     // followed by the volume cone and the speaker.
-    // Which tail buttons the current layout profile keeps (Phase 10). Hidden buttons give
-    // their slot back so the remaining ones stay on the design's 42 px pitch.
-    in-out property <bool> bar-queue: true;
-    in-out property <bool> bar-settings: true;
-    in-out property <bool> bar-subtitles: true;
-    in-out property <bool> bar-audio: true;
+    // Trailing cluster: each control carries a slot measured from the right edge (-1 = hidden).
+    // The shell assigns slots from the saved layout order, so reordering in the customizer
+    // moves the real buttons rather than only the preview.
+    in-out property <int> bar-audio-slot: 3;
+    in-out property <int> bar-subtitle-slot: 2;
+    in-out property <int> bar-settings-slot: 1;
+    in-out property <int> bar-queue-slot: 0;
+    in-out property <int> bar-tail-count: 4;
     property <length> tail-list-x: root.width - root.bar-inset - root.icon-slot;
-    property <length> tail-gear-x: root.tail-list-x - (root.bar-queue ? 50px : 0px);
-    property <length> tail-subtitle-x: root.tail-gear-x - (root.bar-settings ? root.icon-slot : 0px);
-    property <length> tail-audio-x: root.tail-subtitle-x - (root.bar-subtitles ? root.icon-slot : 0px);
-    property <length> cone-x: root.tail-audio-x - 10px - Theme.volume-cone-width;
+    function tail-slot-x(slot: int) -> length {
+        return root.tail-list-x - root.icon-slot * slot;
+    }
+    property <length> tail-audio-x: root.tail-slot-x(root.bar-audio-slot);
+    property <length> tail-subtitle-x: root.tail-slot-x(root.bar-subtitle-slot);
+    property <length> tail-gear-x: root.tail-slot-x(root.bar-settings-slot);
+    property <length> tail-queue-x: root.tail-slot-x(root.bar-queue-slot);
+    // Left edge of the occupied cluster; the volume group anchors to it.
+    property <length> tail-left-x: root.bar-tail-count > 0
+        ? root.tail-list-x - root.icon-slot * (root.bar-tail-count - 1)
+        : root.tail-list-x;
+    property <length> cone-x: root.tail-left-x - 10px - Theme.volume-cone-width;
     property <length> speaker-x: root.cone-x - Theme.space-2 - root.icon-slot;
     property <length> duration-x: root.speaker-x - 20px - root.time-width;
     property <length> seek-w: root.duration-x - 15px - root.seek-x;
@@ -407,27 +419,28 @@ export component PlayerWindow inherits Window {
             width: 100%;
             height: max(root.subtitle-font-size * 1.6, Theme.control-height-lg);
             z: 5;
-            // Four offset copies form a 2px outline behind the white text.
+            // Four offset copies form the outline behind the text; the offset is the
+            // user-selected width so the outline slider changes the actual rendering.
             Text {
-                x: -2px; y: 0; width: 100%; height: 100%;
+                x: 0px - root.subtitle-outline-width; y: 0; width: 100%; height: 100%;
                 text: root.subtitle-text; color: root.subtitle-outline-color;
                 font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
                 horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
             Text {
-                x: 2px; y: 0; width: 100%; height: 100%;
+                x: root.subtitle-outline-width; y: 0; width: 100%; height: 100%;
                 text: root.subtitle-text; color: root.subtitle-outline-color;
                 font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
                 horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
             Text {
-                x: 0; y: -2px; width: 100%; height: 100%;
+                x: 0; y: 0px - root.subtitle-outline-width; width: 100%; height: 100%;
                 text: root.subtitle-text; color: root.subtitle-outline-color;
                 font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
                 horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
             }
             Text {
-                x: 0; y: 2px; width: 100%; height: 100%;
+                x: 0; y: root.subtitle-outline-width; width: 100%; height: 100%;
                 text: root.subtitle-text; color: root.subtitle-outline-color;
                 font-family: Theme.font; font-size: root.subtitle-font-size; font-weight: 600;
                 horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
@@ -668,7 +681,7 @@ export component PlayerWindow inherits Window {
                 changed(v) => { root.volume-changed(round(v * 100)); }
             }
 
-            if root.bar-audio: VfmIconButton {
+            if root.bar-audio-slot >= 0: VfmIconButton {
                 x: root.mx(root.tail-audio-x, root.icon-slot);
                 y: (parent.height - root.icon-slot) / 2;
                 size: root.icon-slot;
@@ -676,7 +689,7 @@ export component PlayerWindow inherits Window {
                 tooltip-text: Strings.s_action_audio;
                 clicked => { root.audio-popover-show = !root.audio-popover-show; root.pin-chrome(); }
             }
-            if root.bar-subtitles: VfmIconButton {
+            if root.bar-subtitle-slot >= 0: VfmIconButton {
                 x: root.mx(root.tail-subtitle-x, root.icon-slot);
                 y: (parent.height - root.icon-slot) / 2;
                 size: root.icon-slot;
@@ -684,7 +697,7 @@ export component PlayerWindow inherits Window {
                 tooltip-text: Strings.s_action_subtitles;
                 clicked => { root.subtitle-popover-show = !root.subtitle-popover-show; root.pin-chrome(); }
             }
-            if root.bar-settings: VfmIconButton {
+            if root.bar-settings-slot >= 0: VfmIconButton {
                 x: root.mx(root.tail-gear-x, root.icon-slot);
                 y: (parent.height - root.icon-slot) / 2;
                 size: root.icon-slot;
@@ -692,8 +705,8 @@ export component PlayerWindow inherits Window {
                 tooltip-text: Strings.s_action_settings;
                 clicked => { root.toggle-settings(); }
             }
-            if root.bar-queue: VfmIconButton {
-                x: root.mx(root.tail-list-x, root.icon-slot);
+            if root.bar-queue-slot >= 0: VfmIconButton {
+                x: root.mx(root.tail-queue-x, root.icon-slot);
                 y: (parent.height - root.icon-slot) / 2;
                 size: root.icon-slot;
                 icon: @image-url("../../../assets/icons/control/queue.svg");

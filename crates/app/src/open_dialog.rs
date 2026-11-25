@@ -210,7 +210,7 @@ impl OpenDialogState {
         Ok((
             port,
             open_media::stream_sout(&preset, port, &self.stream_path),
-            open_media::stream_url(port, &self.stream_path),
+            open_media::stream_url(&preset, port, &self.stream_path),
         ))
     }
 
@@ -305,7 +305,9 @@ pub fn push(win: &OpenMediaWindow, state: &OpenDialogState, language: Language) 
         let url = state
             .stream_plan()
             .map(|(_, _, url)| url)
-            .unwrap_or_else(|_| open_media::stream_url(8080, &state.stream_path));
+            .unwrap_or_else(|_| {
+                open_media::stream_url(&open_media::STREAM_PRESETS[0], 8080, &state.stream_path)
+            });
         win.set_stream_url(url.into());
     }
 }

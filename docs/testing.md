@@ -1,4 +1,4 @@
-# VFM test checklist — Phases 1–4 (core engine + design system + player view + library)
+# VFM test checklist — current build
 
 Phase 1 is engine-first, Phase 2 built the themed design system, and Phase 3 replaced the spike shell with the real player screen, measured against `design/Player.png`. Design-system captures and the Figma comparisons live under `docs/compare/`.
 
@@ -14,7 +14,7 @@ $env:LIBVLC_PATH = "$PWD\vendor\libvlc"
 
 `vendor\libvlc` must contain `libvlc.dll`, `libvlccore.dll`, and `plugins\`. The wrapper also falls back to `<exe>\vlc\`, `<exe>\`, and `C:\Program Files\VideoLAN\VLC`, in that order. If discovery fails, the app exits with a typed error instead of showing a native loader popup.
 
-Local build note: `.cargo\config.toml` links `tools\crt-math-shim` and points `rusqlite` at the system SQLite under `vendor\sqlite`. Keep `sqlite3.dll` beside `vfm-spike.exe`.
+Local build note: `.cargo\config.toml` links `tools\crt-math-shim` and points `rusqlite` at the system SQLite under `vendor\sqlite`. Keep `sqlite3.dll` beside `VFM.exe`.
 
 ## 2. Automated quality gates
 
@@ -30,14 +30,14 @@ cargo test --workspace
 cargo build --release -p vfm-app
 ```
 
-Expected Phase 3 test counts: **8 app + 39 core + 6 wrapper + 0 doc-test failures**. Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
+Expected counts on the 2026-11-25 baseline: **84 app + 149 core + 4 platform + 10 wrapper + 0 doc-test failures** (247 total). Cargo may print non-fatal `error deleting lock file for incremental compilation ... Access is denied` warnings on this host; the commands still exit 0.
 
 ## 3. Headless engine acceptance (two files, resume, persistence)
 
 Use a fresh data directory for the first run:
 
 ```powershell
-& .\target\release\vfm-spike.exe `
+& .\target\release\VFM.exe `
   .\testdata\1080p60.mp4 .\testdata\sample1080p-b.mp4 `
   --engine-test 3 --width 1920 --height 1080 --chroma rv32 `
   --no-single-instance --data-dir .\testdata\engine-run-check
@@ -75,13 +75,13 @@ Also confirm `settings.toml` exists and contains `version = 1`, `remember_positi
 
 | # | Check | How | Expected | Status |
 |---|-------|-----|----------|--------|
-| 1 | Friendly libVLC discovery | Unset `LIBVLC_PATH`, run `vfm-spike.exe <file>` | Typed “libVLC runtime not found” error; no Windows crash popup | Ready |
+| 1 | Friendly libVLC discovery | Unset `LIBVLC_PATH`, run `VFM.exe <file>` | Typed “libVLC runtime not found” error; no Windows crash popup | Ready |
 | 2 | Runtime discovery | Set `LIBVLC_PATH`, run with a media file | Prints plugin path, video appears in Slint `Image`, HUD composites over it | Ready |
 | 3 | EN / عربي toggle | Press the language toggle in the HUD | Labels switch and control order mirrors for RTL | Ready |
 | 4 | Keyboard shortcuts | Space, arrow keys, `F`, `M` in the spike `FocusScope` | Play/pause, seek, fullscreen/mute hooks respond without leaving UI thread | Ready |
 | 5 | Coalesced frames | Watch HUD FPS/drop counters at 1080p60 | One UI upload per presented frame; no queue backlog | Ready |
 | 6 | Single instance | Launch twice without `--no-single-instance` | Second launch exits with “already running”; lock file removed on exit | Ready |
-| 7 | CLI / open-with | `vfm-spike.exe .\testdata\1080p60.mp4` | File opens directly from argument | Ready |
+| 7 | CLI / open-with | `VFM.exe .\testdata\1080p60.mp4` | File opens directly from argument | Ready |
 | 8 | File associations | `--associate`, then `reg query HKCU\Software\Classes\VFM.Media /s`; then `--unassociate` | HKCU entries appear/disappear; no HKLM writes | Ready to validate |
 | 9 | Window geometry | Resize/move/maximize, close, relaunch | Geometry restored and clamped to sane 640×360…8192×8192 bounds | Ready |
 | 10 | Resume prompt | Play >5 s of a long file, quit, reopen same path | Resume policy offers the saved position; near-end media marked watched | Ready via engine test |
@@ -93,9 +93,9 @@ Also confirm `settings.toml` exists and contains `version = 1`, `remember_positi
 ## 4b. Phase 2 design-system checks
 
 ```powershell
-& .\target\release\vfm-spike.exe --gallery
-& .\target\release\vfm-spike.exe --gallery --gallery-theme light
-& .\target\release\vfm-spike.exe --gallery --gallery-language ar
+& .\target\release\VFM.exe --gallery
+& .\target\release\VFM.exe --gallery --gallery-theme light
+& .\target\release\VFM.exe --gallery --gallery-language ar
 ```
 
 | # | Check | How | Expected | Status |
@@ -115,7 +115,7 @@ Also confirm `settings.toml` exists and contains `version = 1`, `remember_positi
 
 ```powershell
 $env:LIBVLC_PATH = "$PWD\vendor\libvlc"
-& .\target\release\vfm-spike.exe .\testdata\1080p60.mp4 --width 1920 --height 1080 `
+& .\target\release\VFM.exe .\testdata\1080p60.mp4 --width 1920 --height 1080 `
   --chroma rv32 --no-single-instance --data-dir .\testdata\phase3-run
 ```
 

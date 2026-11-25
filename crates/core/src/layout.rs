@@ -118,16 +118,12 @@ impl Default for Layout {
             leading: vec![ControlId::PlayPause, ControlId::Stop],
             centre: vec![ControlId::Previous, ControlId::Next],
             trailing: vec![
-                ControlId::Repeat,
-                ControlId::Shuffle,
-                ControlId::Speed,
-                ControlId::Chapters,
-                ControlId::Subtitles,
+                // The shipped bar renders these four; the palette can still offer the rest,
+                // but a default must describe buttons the player actually draws.
                 ControlId::Audio,
-                ControlId::Video,
-                ControlId::Snapshot,
-                ControlId::Pip,
-                ControlId::Fullscreen,
+                ControlId::Subtitles,
+                ControlId::Settings,
+                ControlId::Playlist,
             ],
         }
     }
@@ -232,6 +228,33 @@ impl Layout {
         }
     }
 
+    /// Slot index for each of `known` that appears in the trailing zone, measured from the
+    /// right edge (0 hugs the right edge, increasing values step left), plus the number of
+    /// placed controls. A control that is not placed gets slot `-1`.
+    ///
+    /// This is what the player uses to draw the real bar, so it is pure and tested here.
+    pub fn trailing_slots(&self, known: &[ControlId]) -> (Vec<(ControlId, i32)>, i32) {
+        let ordered: Vec<ControlId> = self
+            .trailing
+            .iter()
+            .copied()
+            .filter(|control| known.contains(control))
+            .collect();
+        let count = ordered.len() as i32;
+        let rows = known
+            .iter()
+            .map(|control| {
+                let slot = ordered
+                    .iter()
+                    .position(|candidate| candidate == control)
+                    .map(|index| count - 1 - index as i32)
+                    .unwrap_or(-1);
+                (*control, slot)
+            })
+            .collect();
+        (rows, count)
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
@@ -295,9 +318,9 @@ mod tests {
     #[test]
     fn adding_a_placed_control_is_a_no_op() {
         let mut layout = Layout::default();
-        assert!(!layout.add(Zone::Trailing, ControlId::Fullscreen));
-        assert!(layout.add(Zone::Trailing, ControlId::Waveform));
-        assert_eq!(layout.trailing.last(), Some(&ControlId::Waveform));
+        assert!(!layout.add(Zone::Trailing, ControlId::Audio));
+        assert!(layout.add(Zone::Trailing, ControlId::Fullscreen));
+        assert_eq!(layout.trailing.last(), Some(&ControlId::Fullscreen));
     }
 
     #[test]
@@ -344,10 +367,62 @@ mod tests {
     }
 
     #[test]
+    fn trailing_slots_follow_the_saved_order() {
+        let known = [
+            ControlId::Audio,
+            ControlId::Subtitles,
+            ControlId::Settings,
+            ControlId::Playlist,
+        ];
+        let (rows, count) = Layout::default().trailing_slots(&known);
+        assert_eq!(count, 4);
+        let slot = |control| {
+            rows.iter()
+                .find(|(candidate, _)| *candidate == control)
+                .unwrap()
+                .1
+        };
+        // Default reading order is Audio, Subtitles, Settings, Playlist, so Playlist hugs
+        // the right edge and Audio is furthest left.
+        assert_eq!(slot(ControlId::Playlist), 0);
+        assert_eq!(slot(ControlId::Settings), 1);
+        assert_eq!(slot(ControlId::Subtitles), 2);
+        assert_eq!(slot(ControlId::Audio), 3);
+
+        // Reversing the order reverses the slots.
+        let mut layout = Layout::default();
+        layout.trailing.reverse();
+        let (rows, _) = layout.trailing_slots(&known);
+        let slot = |control| {
+            rows.iter()
+                .find(|(candidate, _)| *candidate == control)
+                .unwrap()
+                .1
+        };
+        assert_eq!(slot(ControlId::Audio), 0);
+        assert_eq!(slot(ControlId::Playlist), 3);
+
+        // Removing one control closes the gap instead of leaving an empty slot.
+        let mut layout = Layout::default();
+        layout.remove(ControlId::Settings);
+        let (rows, count) = layout.trailing_slots(&known);
+        assert_eq!(count, 3);
+        let slot = |control| {
+            rows.iter()
+                .find(|(candidate, _)| *candidate == control)
+                .unwrap()
+                .1
+        };
+        assert_eq!(slot(ControlId::Settings), -1);
+        assert_eq!(slot(ControlId::Playlist), 0);
+        assert_eq!(slot(ControlId::Audio), 2);
+    }
+
+    #[test]
     fn json_uses_kebab_case_ids() {
         let text = Layout::default().to_json();
         assert!(text.contains("play-pause"));
-        assert!(text.contains("fullscreen"));
+        assert!(text.contains("playlist"));
     }
 
     #[test]

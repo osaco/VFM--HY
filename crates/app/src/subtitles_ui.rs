@@ -57,43 +57,74 @@ pub fn discover_subtitles(media: &Path) -> Vec<PathBuf> {
     found
 }
 
-/// Build human-readable track names for the popovers.
-/// `count` is the libVLC track count (including the disabled "Track ID -1" entry, which we
-/// filter out); `current` is the active track id.
-pub fn track_names(prefix: &str, count: i32, current: i32) -> (Vec<SharedString>, i32) {
-    let mut names = Vec::new();
-    let mut current_index = -1i32;
-    for id in 0..count.max(0) {
-        // libVLC track ids are usually 0..count-1; skip the special -1 disabled id.
-        if id < 0 {
-            continue;
-        }
-        if id == current {
-            current_index = names.len() as i32;
-        }
-        names.push(SharedString::from(format!("{prefix} {}", id + 1).as_str()));
-    }
-    (names, current_index)
+/// A popover-ready track list: display names, the row index of the active track, and the
+/// libVLC id behind each row so a click can select the real track rather than a row number.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrackList {
+    pub names: Vec<SharedString>,
+    pub current_index: i32,
+    pub ids: Vec<i32>,
 }
 
-pub fn push_track_names(
-    ui: &PlayerWindow,
-    audio: (Vec<SharedString>, i32),
-    subtitles: (Vec<SharedString>, i32),
-) {
+impl Default for TrackList {
+    fn default() -> Self {
+        Self {
+            names: Vec::new(),
+            // -1 means "nothing selected"; 0 would point at a row that does not exist.
+            current_index: -1,
+            ids: Vec::new(),
+        }
+    }
+}
+
+/// Build the popover list from libVLC's own track descriptions.
+///
+/// The disabled entry (`id == -1`) is dropped because the popover already has an explicit
+/// "Off" row. A track whose demuxer supplied no name falls back to `"<prefix> N"` — that is a
+/// label for a real track, not a fabricated entry: the list is exactly as long as libVLC says.
+pub fn live_tracks(tracks: &[vlc_wrapper::LiveTrack], prefix: &str, current: i32) -> TrackList {
+    let mut out = TrackList::default();
+    for track in tracks {
+        if track.id < 0 {
+            continue;
+        }
+        if track.id == current {
+            out.current_index = out.names.len() as i32;
+        }
+        let label = if track.name.trim().is_empty() {
+            format!("{prefix} {}", out.names.len() + 1)
+        } else {
+            track.name.clone()
+        };
+        out.names.push(SharedString::from(label));
+        out.ids.push(track.id);
+    }
+    out
+}
+
+/// Resolve a popover row index to the libVLC track id it represents. A negative row means
+/// the explicit "Off" row and maps to `-1` (libVLC's disabled track id).
+pub fn track_id_at(list: &TrackList, row: i32) -> Option<i32> {
+    if row < 0 {
+        return Some(-1);
+    }
+    list.ids.get(row as usize).copied()
+}
+
+pub fn push_track_names(ui: &PlayerWindow, audio: &TrackList, subtitles: &TrackList) {
     let a = VecModel::<SharedString>::default();
-    for n in audio.0 {
-        a.push(n);
+    for n in &audio.names {
+        a.push(n.clone());
     }
     ui.set_audio_track_names(slint::ModelRc::new(a));
-    ui.set_audio_track_current(audio.1);
+    ui.set_audio_track_current(audio.current_index);
 
     let s = VecModel::<SharedString>::default();
-    for n in subtitles.0 {
-        s.push(n);
+    for n in &subtitles.names {
+        s.push(n.clone());
     }
     ui.set_subtitle_track_names(slint::ModelRc::new(s));
-    ui.set_subtitle_track_current(subtitles.1);
+    ui.set_subtitle_track_current(subtitles.current_index);
 }
 
 #[cfg(test)]
@@ -136,12 +167,47 @@ mod tests {
     }
 
     #[test]
-    fn track_names_skip_disabled_and_mark_current() {
-        let (names, current) = track_names("Audio", 3, 2);
-        assert_eq!(names.len(), 3);
-        assert_eq!(current, 2);
-        assert_eq!(names[0], "Audio 1");
-        let (_, none) = track_names("Sub", 0, -1);
-        assert_eq!(none, -1);
+    fn live_tracks_use_engine_names_and_skip_the_disabled_entry() {
+        let tracks = vec![
+            vlc_wrapper::LiveTrack {
+                id: -1,
+                name: "Disable".into(),
+            },
+            vlc_wrapper::LiveTrack {
+                id: 2,
+                name: "English".into(),
+            },
+            vlc_wrapper::LiveTrack {
+                id: 7,
+                name: String::new(),
+            },
+        ];
+        let list = live_tracks(&tracks, "Audio", 2);
+        assert_eq!(list.names.len(), 2);
+        assert_eq!(list.names[0], "English");
+        // A nameless real track still gets a positional label, not a fake extra row.
+        assert_eq!(list.names[1], "Audio 2");
+        assert_eq!(list.ids, vec![2, 7]);
+        assert_eq!(list.current_index, 0);
+    }
+
+    #[test]
+    fn track_id_at_maps_rows_and_off() {
+        let list = TrackList {
+            names: vec!["A".into()],
+            current_index: 0,
+            ids: vec![5],
+        };
+        assert_eq!(track_id_at(&list, 0), Some(5));
+        assert_eq!(track_id_at(&list, -1), Some(-1));
+        assert_eq!(track_id_at(&list, 3), None);
+    }
+
+    #[test]
+    fn an_empty_engine_list_produces_no_rows() {
+        let list = live_tracks(&[], "Sub", -1);
+        assert!(list.names.is_empty());
+        assert!(list.ids.is_empty());
+        assert_eq!(list.current_index, -1);
     }
 }

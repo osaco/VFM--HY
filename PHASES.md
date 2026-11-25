@@ -4,6 +4,33 @@ One phase per session. Do not start the next phase until the previous result is 
 Each phase ends with: summary, `docs/compare/` screenshots (where UI changed), known issues,
 exact run commands, then STOP.
 
+## Status at a glance (verified 2026-11-25)
+
+The phase list below is the original plan. The verified state of the code lives in
+`docs/phase-1.md` … `docs/phase-11.md`, `docs/testing.md` and `docs/compare/`. This table is a
+pointer, not a second source of truth; the roadmap is not "finished" and the phase documents
+list the real gaps.
+
+| Phase | State | Honest remainder |
+| --- | --- | --- |
+| 0 — Spike | Built and re-verified | 4K GPU path never measured |
+| 1 — Core engine | Implemented | UI polls libVLC on a 4 Hz tick rather than consuming every typed event |
+| 2 — Design system | Implemented | — |
+| 3 — Player view | Implemented | — |
+| 4 — Queue & library | Implemented | 10k-item windowing not proven end to end; thumbnail generation is cache-first |
+| 5 — Tracks/subtitles/thumbs | Partly implemented | Headless seek-thumbnail grabber is not wired; rotation/flip are stored but not applied |
+| 6 — Sidebar & presets | Implemented | Rotation/flip controls do not change output |
+| 7 — Advanced | Implemented | Embedded album art is not extracted; music mode uses a generated card |
+| 8 — Settings/hotkeys/a11y | Implemented | Windows high-contrast mode is not honoured |
+| 9 — Media dialogs | Implemented | Capture devices are typed, not enumerated; conversion progress is estimated; RTSP serving is not offered |
+| 10 — Layout customisation | Partly implemented | The player applies which tail buttons exist, not their full order |
+| 11 — Hardening/release | In progress | DPI 125/150/200 %, multi-monitor, 4K, installer signing remain open |
+
+**Baseline correction:** the supplied snapshot did not compile. Two build errors (a missing
+`SidebarState` field and a non-`Send` `Rc` crossing into the event loop) and one stale hotkey
+test were fixed on 2026-11-25 before any feature work; the previous "236 passed" claim was
+historical and did not describe this source tree.
+
 ## Phase 0 — Architecture spike (done)
 Finish Phase 0 on this Windows machine: make the workspace compile, pass fmt/clippy/tests,
 render a real video with HUD overlaid, run the 1080p60 and 4K30 benchmarks (RGBA vs RV32),
@@ -12,7 +39,7 @@ shader path. Review all unsafe code in `vlc-wrapper`. Stop.
 
 **Acceptance:** video plays smoothly at 1080p, real numbers, no warnings.
 
-## Phase 1 — Core engine (current)
+## Phase 1 — Core engine (implemented)
 Phase 1 — Core engine. Implement in `vlc-wrapper`/`core`:
 - Player: play/pause/stop, accurate seek/time/length, volume/mute, speed, audio/subtitle track
   enumeration + selection, audio delay, subtitle delay, aspect ratio, A–B repeat, frame step,

@@ -147,7 +147,7 @@ cargo build --release -p vfm-app
 
 # run with the local libVLC (default window, 125 % host)
 $env:LIBVLC_PATH="$PWD\vendor\libvlc"
-.\target\release\vfm-spike.exe .\testdata\1080p60.mp4 --width 1920 --height 1080 --chroma rv32 `
+.\target\release\VFM.exe .\testdata\1080p60.mp4 --width 1920 --height 1080 --chroma rv32 `
     --no-single-instance --data-dir .\testdata\phase3-run
 
 # 1:1 Figma comparison (100 % scale, 1920-wide canvas)
@@ -165,5 +165,5 @@ python tools\scan_pixels.py row 4195 0 1500 --tol 10
 python tools\scan_pixels.py col 1200 4080 4320 --tol 8
 
 # component gallery (Phase 2 regression check)
-.\target\release\vfm-spike.exe --gallery --gallery-theme light --gallery-language ar
+.\target\release\VFM.exe --gallery --gallery-theme light --gallery-language ar
 ```

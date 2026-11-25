@@ -85,6 +85,18 @@ pub struct AudioOutputDevice {
     pub description: *mut c_char,
 }
 
+/// `libvlc_track_description_t` — a linked list of live track ids and display names.
+///
+/// Returned by `libvlc_audio_get_track_description` and
+/// `libvlc_video_get_spu_description`; must be freed with
+/// `libvlc_track_description_list_release`.
+#[repr(C)]
+pub struct TrackDescription {
+    pub i_id: c_int,
+    pub psz_name: *mut c_char,
+    pub p_next: *mut TrackDescription,
+}
+
 pub struct VlcApi {
     // Keep both DLLs resident for the lifetime of every handle that borrows these pointers.
     _core: Library,
@@ -143,6 +155,12 @@ pub struct VlcApi {
     pub audio_get_track_count: unsafe extern "C" fn(*mut c_void) -> c_int,
     pub audio_get_track: unsafe extern "C" fn(*mut c_void) -> c_int,
     pub audio_set_track: unsafe extern "C" fn(*mut c_void, c_int) -> c_int,
+    /// `libvlc_track_description_t *libvlc_audio_get_track_description(mp)` — caller frees
+    /// with `libvlc_track_description_list_release`.
+    pub audio_get_track_description: unsafe extern "C" fn(*mut c_void) -> *mut TrackDescription,
+    /// `libvlc_track_description_t *libvlc_video_get_spu_description(mp)`.
+    pub video_get_spu_description: unsafe extern "C" fn(*mut c_void) -> *mut TrackDescription,
+    pub track_description_list_release: unsafe extern "C" fn(*mut TrackDescription),
     pub video_get_spu_count: unsafe extern "C" fn(*mut c_void) -> c_int,
     pub video_get_spu: unsafe extern "C" fn(*mut c_void) -> c_int,
     pub video_set_spu: unsafe extern "C" fn(*mut c_void, c_int) -> c_int,
@@ -373,6 +391,18 @@ impl VlcApi {
             audio_set_track: sym!(
                 b"libvlc_audio_set_track\0",
                 unsafe extern "C" fn(*mut c_void, c_int) -> c_int
+            ),
+            audio_get_track_description: sym!(
+                b"libvlc_audio_get_track_description\0",
+                unsafe extern "C" fn(*mut c_void) -> *mut TrackDescription
+            ),
+            video_get_spu_description: sym!(
+                b"libvlc_video_get_spu_description\0",
+                unsafe extern "C" fn(*mut c_void) -> *mut TrackDescription
+            ),
+            track_description_list_release: sym!(
+                b"libvlc_track_description_list_release\0",
+                unsafe extern "C" fn(*mut TrackDescription)
             ),
             video_get_spu_count: sym!(
                 b"libvlc_video_get_spu_count\0",

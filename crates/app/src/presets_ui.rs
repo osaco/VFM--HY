@@ -137,6 +137,7 @@ pub fn default_state() -> SidebarState {
         tab: 0,
         eq_index: 0,
         aspect_index: 0,
+        audio_device_index: 0,
         rotation_index: 0,
         active_preset_index: -1,
         preset_name: s(""),

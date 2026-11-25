@@ -1,9 +1,10 @@
 # Phase 9 summary — Media dialogs (VFM)
 
-Status: **complete for review**. One dialog covers every way media enters the player — file,
+Status: **partly complete**. One dialog covers every way media enters the player — file,
 folder, network stream, capture device, clipboard, recents — plus conversion and streaming
 from the current file. Native Windows pickers replace the placeholder "open Explorer" button,
-including the settings folder fields.
+including the settings folder fields. Capture enumeration, exact transcode progress and a
+separate-client RTSP test remain open (see Known issues).
 
 ## What was done
 
@@ -30,7 +31,9 @@ including the settings folder fields.
   with spaces are quoted.
 * `CONVERT_PRESETS` (MP4/H.264, WebM/VP8, MKV/H.264, MP3, M4A) and `STREAM_PRESETS`
   (HTTP-TS, HTTP-PS, RTSP) describe each target once; `convert_sout` and `stream_sout` turn a
-  preset into a libVLC `#transcode{…}:std{…}` chain.
+  preset into a libVLC `#transcode{…}` chain. HTTP presets end in `:std{access=http,…}`; the
+  RTSP preset ends in `:rtp{sdp=rtsp://…}`, which starts a real RTSP server instead of
+  mislabelling an HTTP stream.
 * Audio-only presets emit `vcodec=none` — without it libVLC tries to mux a video track into an
   MP3 and fails at open time.
 * 13 tests.
@@ -101,8 +104,8 @@ cargo build --release -p vfm-app
 
 ```powershell
 $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
-.\target\release\vfm-spike.exe --open          # File panel
-.\target\release\vfm-spike.exe --open 6        # Convert panel
+.\target\release\VFM.exe --open          # File panel
+.\target\release\VFM.exe --open 6        # Convert panel
 ```
 
 ## Known issues and deviations
@@ -111,7 +114,8 @@ $env:LIBVLC_PATH = "D:\تجاربي\VLC MAINE 2 HY\vendor\libvlc"
    panel defaults to the system device and accepts a name. Enumeration is the next step.
 2. Conversion progress is time-based; libVLC exposes no transcode-percentage counter, so the
    bar is an estimate that can stall near the end on very fast presets.
-3. Streaming always uses the HTTP access module; RTSP *serving* needs a dedicated `rtsp{}`
-   chain and is not offered yet.
+3. Streaming uses the preset's real access output: HTTP presets serve over `access=http`; the
+   RTSP preset emits `rtp{sdp=rtsp://…}` and reports an `rtsp://` viewer URL. The RTSP chain has
+   not yet been exercised from a separate client/device in this build.
 4. The dialog keeps its own accent/theme copy; changing the theme while it is open applies on
    the next open (the player and settings windows update immediately).
